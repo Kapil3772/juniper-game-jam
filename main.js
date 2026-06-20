@@ -1,75 +1,3 @@
-class GameImage {
-    loadImage(path){
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.src = path;
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-        });
-  }
-  async loadImagesFromFolder(path,count){
-    const imgs = [];
-    for(let i=0; i<count; i++){
-      try{
-        const img = await this.loadImage(path + i +".png");
-        imgs.push(img);
-      }catch(error) {
-        console.log("Cannot load the Image :" + path + i +".png, \nError:- "+error);
-      }
-    }
-    return imgs;
-  }
-}
-
-const PlayerAnimState = {
-    IDLE : "IDLE",
-    WALK : "WALK",
-    JUMP : "JUMP",
-    FALL : "FALL",
-    RUN : "RUN"
-};
-class Animation {
-    constructor(imgArray,animCompletionTime,loop){
-        this.imgs = imgArray;
-        this.looping = loop;
-        this.frames = this.imgs.length;
-        this.animCompletionTime = animCompletionTime;
-        this.frameTime = this.animCompletionTime/this.frames; //seconds
-    }
-}
-
-class AnimationPlayer {
-    constructor(){
-        this.animation = null;
-        this.animTime = 0;
-        this.frameTime = 0;
-        this.frameIndex = 0;
-    }
-    update(dt){
-        this.animTime += dt;
-        this.frameTime += dt;
-        if(this.frameTime >= this.animation.frameTime){
-            this.frameTime -= this.animation.frameTime;
-            if(this.animation.looping){
-                this.frameIndex = (this.frameIndex + 1)% this.animation.frames;
-            }else{
-                this.frameIndex = Math.min(this.frameIndex+1,this.animation.frames-1);
-            }
-        }
-    }
-    getCurrentFrame(){
-        return this.animation.imgs[this.frameIndex];
-    }
-    setAnimation(anim){
-        this.reset();
-        this.animation = anim;
-    }
-    reset(){
-        this.animTime = 0;
-        this.frameTime = 0;
-        this.frameIndex = 0;
-    }
-}
 class Rect {
   constructor(x,y,w,h){
     this.x = x;
@@ -111,6 +39,155 @@ class PhysicsRect extends Rect {
     return this.right() > x && this.left() < x && y > this.top() && y < this.bottom();
   }
 }
+class GameImage {
+    loadImage(path){
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.src = path;
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+        });
+  }
+  async loadImagesFromFolder(path,count){
+    const imgs = [];
+    for(let i=0; i<count; i++){
+      try{
+        const img = await this.loadImage(path + i +".png");
+        imgs.push(img);
+      }catch(error) {
+        console.log("Cannot load the Image :" + path + i +".png, \nError:- "+error);
+      }
+    }
+    return imgs;
+  }
+}
+
+const PlayerAnimState = {
+    IDLE : "IDLE",
+    WALK : "WALK",
+    JUMP : "JUMP",
+    FALL : "FALL",
+    RUN : "RUN"
+};
+
+class Tile extends PhysicsRect {
+    constructor(x,y,w,h,img){
+        super(x,y,w,h);
+        this.img = img;
+    }
+    update(dt){}
+    render(ctx){
+        ctx.strokeStyle = "cyan";
+        ctx.strokeRect(this.x,this.y,this.w,this.h);
+    }
+}
+
+class TileMap {
+    constructor(tileW,tileH){
+        this.tileW = tileW;
+        this.tileH = tileH;
+        this.ongridTiles = new Map();
+        this.offGridTiles = new Map();
+        for(let i = 0; i<5; i++){
+            this.ongridTiles.set(""+i+",6",new Tile(0 + (i*32),6*32,32,32));
+        }
+    }
+}
+class Animation {
+    constructor(imgArray,animCompletionTime,loop,playerWidth,playerHeight){
+        this.imgs = imgArray;
+        this.looping = loop;
+        this.frames = this.imgs.length;
+        this.animCompletionTime = animCompletionTime;
+        this.frameTime = this.animCompletionTime/this.frames; //seconds
+        this.xOffset = playerWidth/2 - this.imgs[0].width/2;
+        this.yOffset = playerHeight - this.imgs[0].height;
+    }
+}
+
+class AnimationPlayer {
+    constructor(){
+        this.animation = null;
+        this.animTime = 0;
+        this.frameTime = 0;
+        this.frameIndex = 0;
+    }
+    update(dt){
+        this.animTime += dt;
+        this.frameTime += dt;
+        if(this.frameTime >= this.animation.frameTime){
+            this.frameTime -= this.animation.frameTime;
+            if(this.animation.looping){
+                this.frameIndex = (this.frameIndex + 1)% this.animation.frames;
+            }else{
+                this.frameIndex = Math.min(this.frameIndex+1,this.animation.frames-1);
+            }
+        }
+    }
+    getCurrentFrame(){
+        return this.animation.imgs[this.frameIndex];
+    }
+    setAnimation(anim){
+        this.reset();
+        this.animation = anim;
+    }
+    reset(){
+        this.animTime = 0;
+        this.frameTime = 0;
+        this.frameIndex = 0;
+    }
+}
+
+class TileCollisionHandeler {
+    constructor(entity,tileW,tileH){
+        this.entity = entity;
+        this.tileW = tileW;
+        this.tileH = tileH;
+        this.physicsRectAround = [];
+    }
+    resolveHorizontalCollision(){
+        for(const tile of this.physicsRectAround){
+            if(tile.intersects(this.entity)){
+                //horisontal resolve
+                if(this.entity.direction==1){
+                    this.entity.x = tile.left() - this.entity.w;
+                    console.log(tile.x+","+tile.y+"resolved to right");
+                }else if(this.entity.direction==-1){
+                    this.entity.x = tile.right();
+                    console.log(tile.x+","+tile.y+"resolved to left");
+                }
+            }
+        }
+    }
+    resolveVerticalCollision(){
+        for(const tile of this.physicsRectAround){
+            if(tile.intersects(this.entity)){
+                //vertical resolve
+                if(this.entity.yVelocity>0){
+                    this.entity.y = tile.top() - this.entity.h;
+                    this.entity.yVelocity = 0;
+                }else if(this.entity.yVelocity<0){
+                    this.entity.y = tile.bottom();
+                }
+            }
+        }
+    }
+    updatePhysicsTilesAround(){
+        this.physicsRectAround = [];
+        let gridLeft = Math.floor(this.entity.left()/this.tileW);
+        let gridRight = Math.ceil(this.entity.right()/this.tileW);
+        let gridTop = Math.floor(this.entity.top()/this.tileH);
+        let gridBottom = Math.ceil(this.entity.bottom()/this.tileH);
+        for(let i=gridLeft; i<=gridRight; i++){
+            for(let j=gridTop; j<=gridBottom; j++){
+                const tile = this.entity.game.tileMap.ongridTiles.get(`${i},${j}`);
+                if(tile!=null){
+                    this.physicsRectAround.push(tile);
+                }
+            }
+        }
+    }
+}
 
 class Player extends PhysicsRect{
     constructor(game,x,y,w,h){
@@ -138,12 +215,14 @@ class Player extends PhysicsRect{
         this.isFalling = false;
         this.isRunning = false;
         this.onAir = false;
+
+        //physics ddependencies
+        this.tileCollisionHandeler = new TileCollisionHandeler(this,32,32);
     }
     update(dt){
         // horizontal movement
         let left = this.game.globalInputs.leftPressed?1:0;
         let right = this.game.globalInputs.rightPressed?1:0;
-        console.log(right);
         this.direction = right-left;
         if(this.direction !=0){
             this.flip = this.direction==1?true:false;
@@ -157,12 +236,15 @@ class Player extends PhysicsRect{
         }
 
         this.x = this.x + this.xVelocity*dt*this.runningSpeedFactor*this.direction;
-
+        this.tileCollisionHandeler.updatePhysicsTilesAround();
+        this.tileCollisionHandeler.resolveHorizontalCollision();
         //gravity handel
         this.yVelocity += this.game.gravity*dt;
         this.y = this.y + this.yVelocity*dt;
-
+        this.tileCollisionHandeler.updatePhysicsTilesAround();
+        this.tileCollisionHandeler.resolveVerticalCollision();
         //collision handel
+        
         //bottom collision
         if(this.bottom()>this.game.vCanvasH){
             this.y = this.game.vCanvasH - this.h;
@@ -181,6 +263,8 @@ class Player extends PhysicsRect{
 
         this.updateAnimationState(dt);
 
+        this.prevX = this.x;
+        this.prevY = this.y;
     }
     updateAnimationState(dt){
         //change state
@@ -226,18 +310,26 @@ class Player extends PhysicsRect{
         if(this.img!=null){
             if (this.flip) {
                 ctx.save();
-                ctx.translate(this.x + this.img.width, this.y);
+                ctx.translate(this.x + this.img.width + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset);
                 ctx.scale(-1, 1);
                 ctx.drawImage(this.img, 0, 0);
                 ctx.restore();
             } else {
-                ctx.drawImage(this.img, this.x, this.y);
+                ctx.drawImage(this.img, this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset);
             }
+            //Actual Physical debug rect
             ctx.strokeStyle = "cyan";
             ctx.strokeRect(this.x,this.y,this.w,this.h);
+            //Image debug rect
+            ctx.strokeStyle = "red";
+            ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
         }else{
             ctx.fillStyle = "cyan";
             ctx.fillRect(this.x,this.y,this.w,this.h);
+        }
+        ctx.fillStyle = "red";
+        for(const tile of this.tileCollisionHandeler.physicsRectAround){
+            ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
         }
         
     }
@@ -277,13 +369,17 @@ class Game {
         //game inputs
         this.globalInputs = new GameInputs();
         this.bindInputs();
-
+        this.playerW = 16;
+        this.playerH = 42;
         await this.loadAssets();
 
         //environment dependencies
         this.gravity = 600; //px per sec square
+        this.tileMap = new TileMap(32,32);
+
+
         //entities
-        this.player = new Player(this,20,20,64,64);
+        this.player = new Player(this,20,20,this.playerW,this.playerH);
 
         //main loop dependencies
         this.nowMs = performance.now();
@@ -292,6 +388,7 @@ class Game {
         this.gameloop();
     }
     bindInputs(){
+        
         window.addEventListener("keydown", (e) => {
         switch(e.code){
             case "KeyA":
@@ -345,11 +442,11 @@ class Game {
         this.playerFall = await this.loader.loadImagesFromFolder("assets/male/fall/",5);
         this.playerRun = await this.loader.loadImagesFromFolder("assets/male/run/",8);
         this.assets = {
-            "playerIdle" : new Animation(this.playerIdle,0.5,true),
-            "playerWalk" : new Animation(this.playerWalk,0.65,true),
-            "playerJump" : new Animation(this.playerJump,0.65,true),
-            "playerFall" : new Animation(this.playerFall,0.65,true),
-            "playerRun" : new Animation(this.playerRun,0.65,true)
+            "playerIdle" : new Animation(this.playerIdle,0.5,true,this.playerW,this.playerH),
+            "playerWalk" : new Animation(this.playerWalk,0.65,true,this.playerW,this.playerH),
+            "playerJump" : new Animation(this.playerJump,0.65,true,this.playerW,this.playerH),
+            "playerFall" : new Animation(this.playerFall,0.65,true,this.playerW,this.playerH),
+            "playerRun" : new Animation(this.playerRun,0.65,true,this.playerW,this.playerH)
         }
     }
     gameloop(){
@@ -371,12 +468,14 @@ class Game {
         ctx.fillStyle = "black";
         ctx.fillRect(0,0,this.canvasW,this.canvasH);
         this.player.render(ctx);
+        for (const tile of this.tileMap.ongridTiles.values()) {
+            tile.render(ctx);
+        }
 
         //rendering vCtx into ctx
         this.ctx.clearRect(0,0,250,250);
         this.ctx.drawImage(this.vCanvas,0,0,this.vCanvasW*2,this.vCanvasH*2);
     }
 }
-
 
 const game = new Game();
