@@ -67,7 +67,13 @@ const PlayerAnimState = {
     WALK : "WALK",
     JUMP : "JUMP",
     FALL : "FALL",
-    RUN : "RUN"
+    RUN : "RUN",
+    IDLE_AIM : "IDLE_AIM",
+    WALK_AIM : "WALK_AIM",
+    RUN_AIM : "RUN_AIM",
+    JUMP_AIM : "JUMP_AIM",
+    FALL_AIM : "FALL_AIM",
+    FIRE : "FIRE"
 };
 
 class Tile extends PhysicsRect {
@@ -88,8 +94,14 @@ class TileMap {
         this.tileH = tileH;
         this.ongridTiles = new Map();
         this.offGridTiles = new Map();
-        for(let i = 0; i<5; i++){
+        for(let i = 0; i<9; i++){
             this.ongridTiles.set(""+i+",6",new Tile(0 + (i*32),6*32,32,32));
+        }
+        this.onScreenTiles = [];
+    }
+    render(ctx){
+        for (const tile of this.ongridTiles.values()) {
+            tile.render(ctx);
         }
     }
 }
@@ -168,6 +180,7 @@ class TileCollisionHandeler {
                     this.entity.yVelocity = 0;
                 }else if(this.entity.yVelocity<0){
                     this.entity.y = tile.bottom();
+                    this.entity.yVelocity = 0;
                 }
             }
         }
@@ -210,11 +223,15 @@ class Player extends PhysicsRect{
         this.animationPlayer.setAnimation(this.game.assets.playerIdle);
         this.flip = false;
 
-        //inputs and states
+        //inputs, states and timers
         this.isJumping = false;
         this.isFalling = false;
         this.isRunning = false;
         this.onAir = false;
+        this.isAiming = false;
+        this.attackHandeled = false;
+        this.isAttacking = false;
+        this.attackTimer = 0;
 
         //physics ddependencies
         this.tileCollisionHandeler = new TileCollisionHandeler(this,32,32);
@@ -261,6 +278,20 @@ class Player extends PhysicsRect{
             this.yVelocity = this.jumpVelocity;
         }
 
+        this.isAiming = this.game.globalInputs.aimPressed?true:false;
+        if(this.isAttacking){
+            this.attackTimer-=dt;
+            if(this.attackTimer<=0){
+                this.attackHandeled = false;
+                this.isAttacking = false;
+                this.attackTimer = 0;
+            }
+        }
+        if(this.game.globalInputs.attackPressed && !this.attackHandeled){
+            this.attackHandeled = true;
+            this.isAttacking = true;
+            this.attackTimer = this.game.assets.playerFire.animCompletionTime;
+        }
         this.updateAnimationState(dt);
 
         this.prevX = this.x;
@@ -270,12 +301,28 @@ class Player extends PhysicsRect{
         //change state
         if(this.isJumping){
             this.newAnimState = PlayerAnimState.JUMP;
+            if(this.isAiming){
+                this.newAnimState=PlayerAnimState.JUMP_AIM;
+            }
         }else if(this.isFalling){
             this.newAnimState = PlayerAnimState.FALL;
+            if(this.isAiming){
+                this.newAnimState=PlayerAnimState.FALL_AIM;
+            }
         }else if(this.isRunning){
             this.newAnimState = PlayerAnimState.RUN;
+            if(this.isAiming){
+                this.newAnimState=PlayerAnimState.RUN_AIM;
+            }
         }else if(this.direction!=0){
             this.newAnimState = PlayerAnimState.WALK;
+            if(this.isAiming){
+                this.newAnimState=PlayerAnimState.WALK_AIM;
+            }
+        }else if(this.isAttacking){
+            this.newAnimState = PlayerAnimState.FIRE;
+        }else if(this.isAiming){
+            this.newAnimState = PlayerAnimState.IDLE_AIM;
         }else{
             this.newAnimState = PlayerAnimState.IDLE;
         }
@@ -297,6 +344,24 @@ class Player extends PhysicsRect{
                     break;
                 case(PlayerAnimState.IDLE):
                     this.animationPlayer.setAnimation(this.game.assets.playerIdle);
+                    break;
+                case(PlayerAnimState.IDLE_AIM):
+                    this.animationPlayer.setAnimation(this.game.assets.playerAimIdle);
+                    break;
+                case(PlayerAnimState.WALK_AIM):
+                    this.animationPlayer.setAnimation(this.game.assets.playerWalkAim);
+                    break;
+                case(PlayerAnimState.RUN_AIM):
+                    this.animationPlayer.setAnimation(this.game.assets.playerRunAim);
+                    break;
+                case(PlayerAnimState.JUMP_AIM):
+                    this.animationPlayer.setAnimation(this.game.assets.playerJumpAim);
+                    break;
+                case(PlayerAnimState.FALL_AIM):
+                    this.animationPlayer.setAnimation(this.game.assets.playerFallAim);
+                    break;
+                case(PlayerAnimState.FIRE):
+                    this.animationPlayer.setAnimation(this.game.assets.playerFire);
                     break;
                 default:
                     break;
@@ -343,6 +408,8 @@ class GameInputs {
         this.jumpHandeled = false;
         this.enterPressed = false;
         this.shiftPressed = false;
+        this.attackPressed = false;
+        this.aimPressed = false;
     }
 }
 
@@ -388,7 +455,21 @@ class Game {
         this.gameloop();
     }
     bindInputs(){
-        
+        window.addEventListener("contextmenu", (e) => {e.preventDefault();});
+        window.addEventListener("mousedown", (e) => {
+            if(e.button===0){
+                this.globalInputs.attackPressed = true;
+            }else if(e.button ===2){
+                this.globalInputs.aimPressed = true;
+            }
+        });
+        window.addEventListener("mouseup", (e) => {
+            if(e.button===0){
+                this.globalInputs.attackPressed = false;
+            }else if(e.button ===2){
+                this.globalInputs.aimPressed = false;
+            }
+        });
         window.addEventListener("keydown", (e) => {
         switch(e.code){
             case "KeyA":
@@ -441,12 +522,24 @@ class Game {
         this.playerJump = await this.loader.loadImagesFromFolder("assets/male/jump/",5);
         this.playerFall = await this.loader.loadImagesFromFolder("assets/male/fall/",5);
         this.playerRun = await this.loader.loadImagesFromFolder("assets/male/run/",8);
+        this.playerAimIdle = await this.loader.loadImagesFromFolder("assets/male/aimIdle/",5);
+        this.playerFire = await this.loader.loadImagesFromFolder("assets/male/fire/",5);
+        this.playerWalkAim = await this.loader.loadImagesFromFolder("assets/male/walkAim/",8);
+        this.playerJumpAim = await this.loader.loadImagesFromFolder("assets/male/jumpAim/",5);
+        this.playerRunAim = await this.loader.loadImagesFromFolder("assets/male/runAim/",8);
+        this.playerFallAim = await this.loader.loadImagesFromFolder("assets/male/fallAim/",5);
         this.assets = {
             "playerIdle" : new Animation(this.playerIdle,0.5,true,this.playerW,this.playerH),
             "playerWalk" : new Animation(this.playerWalk,0.65,true,this.playerW,this.playerH),
             "playerJump" : new Animation(this.playerJump,0.65,true,this.playerW,this.playerH),
             "playerFall" : new Animation(this.playerFall,0.65,true,this.playerW,this.playerH),
-            "playerRun" : new Animation(this.playerRun,0.65,true,this.playerW,this.playerH)
+            "playerRun" : new Animation(this.playerRun,0.65,true,this.playerW,this.playerH),
+            "playerAimIdle" : new Animation(this.playerAimIdle,0.5,true,this.playerW,this.playerH),
+            "playerFire" : new Animation(this.playerFire,0.5,false,this.playerW,this.playerH),
+            "playerWalkAim" : new Animation(this.playerWalkAim,0.65,true,this.playerW,this.playerH),
+            "playerRunAim" : new Animation(this.playerRunAim,0.65,true,this.playerW,this.playerH),
+            "playerJumpAim" : new Animation(this.playerJumpAim,0.65,true,this.playerW,this.playerH),
+            "playerFallAim" : new Animation(this.playerFallAim,0.65,true,this.playerW,this.playerH),
         }
     }
     gameloop(){
@@ -468,13 +561,13 @@ class Game {
         ctx.fillStyle = "black";
         ctx.fillRect(0,0,this.canvasW,this.canvasH);
         this.player.render(ctx);
-        for (const tile of this.tileMap.ongridTiles.values()) {
-            tile.render(ctx);
-        }
+        this,this.tileMap.render(ctx);
 
         //rendering vCtx into ctx
         this.ctx.clearRect(0,0,250,250);
-        this.ctx.drawImage(this.vCanvas,0,0,this.vCanvasW*2,this.vCanvasH*2);
+        this.ctx.fillStyle = "grey";
+        this.ctx.fillRect(0,0,this.canvasW,this.canvasH);
+        this.ctx.drawImage(this.vCanvas,0,0,this.canvasW,this.canvasH);
     }
 }
 
