@@ -73,7 +73,11 @@ const PlayerAnimState = {
     RUN_AIM : "RUN_AIM",
     JUMP_AIM : "JUMP_AIM",
     FALL_AIM : "FALL_AIM",
-    FIRE : "FIRE"
+    FIRE : "FIRE",
+    WALK_FIRE : "WALK_FIRE",
+    RUN_FIRE : "RUN_FIRE",
+    JUMP_FIRE : "JUMP_FIRE",
+    FALL_FIRE : "FALL_FIRE"
 };
 
 class Tile extends PhysicsRect {
@@ -106,14 +110,14 @@ class TileMap {
     }
 }
 class Animation {
-    constructor(imgArray,animCompletionTime,loop,playerWidth,playerHeight){
+    constructor(imgArray,animCompletionTime,loop,entityWidth,entityHeight){
         this.imgs = imgArray;
         this.looping = loop;
         this.frames = this.imgs.length;
         this.animCompletionTime = animCompletionTime;
         this.frameTime = this.animCompletionTime/this.frames; //seconds
-        this.xOffset = playerWidth/2 - this.imgs[0].width/2;
-        this.yOffset = playerHeight - this.imgs[0].height;
+        this.xOffset = entityWidth/2 - this.imgs[0].width/2;
+        this.yOffset = entityHeight - this.imgs[0].height;
     }
 }
 
@@ -123,6 +127,7 @@ class AnimationPlayer {
         this.animTime = 0;
         this.frameTime = 0;
         this.frameIndex = 0;
+        this.done = false
     }
     update(dt){
         this.animTime += dt;
@@ -133,6 +138,7 @@ class AnimationPlayer {
                 this.frameIndex = (this.frameIndex + 1)% this.animation.frames;
             }else{
                 this.frameIndex = Math.min(this.frameIndex+1,this.animation.frames-1);
+                this.done = true;
             }
         }
     }
@@ -202,6 +208,49 @@ class TileCollisionHandeler {
     }
 }
 
+class Bullet extends PhysicsRect {
+    constructor(entity,x,y,w,h,direction,anim){
+        super(x,y,w,h);
+        this.entity = entity;
+        this.direction = direction;
+        this.xVelocity = 800; //px per second
+        this.bulletAnim = anim;
+        this.bulletAnimPlayer = new AnimationPlayer();
+        this.bulletAnimPlayer.animation = this.bulletAnim;
+    }
+    update(dt){
+        this.x += this.xVelocity * dt * this.direction;
+        this.bulletAnimPlayer.update(dt);
+    }
+    render(ctx){
+        const img = this.bulletAnimPlayer.getCurrentFrame();
+        ctx.drawImage(img,this.x+this.bulletAnim.xOffset,this.y+this.bulletAnim.yOffset);
+        //ctx.strokeStyle = "red";
+        //ctx.strokeRect(this.x,this.y,this.w,this.h);
+    }
+}
+
+class BulletHandeler {
+    constructor(entity){
+        this.entity = entity;
+        this.bullets = [];
+    }
+    update(dt){
+        for(const bullet of this.bullets){
+            bullet.update(dt);
+        }
+    }
+    render(ctx){
+        for(const bullet of this.bullets){
+            bullet.render(ctx);
+        }
+    }
+    addBullet(){
+        let direction = this.entity.flip?1:-1;
+        const anim = this.entity.game.assets.bullet;
+        this.bullets.push(new Bullet(this.entity,this.entity.centerX(),this.entity.centerY()-15,anim.imgs[0].width,anim.imgs[0].height/4,direction,anim));
+    }
+}
 class Player extends PhysicsRect{
     constructor(game,x,y,w,h){
         super(x,y,w,h);
@@ -214,6 +263,7 @@ class Player extends PhysicsRect{
         this.yVelocity = 0; //px per second
         this.jumpVelocity = -this.game.gravity/2.2;
         this.runningSpeedFactor = 1;
+        this.gunRecoilFactor = 1; // making movement speed slower
 
         //visuals
         this.img = this.game.playerIdle[2];
@@ -232,9 +282,15 @@ class Player extends PhysicsRect{
         this.attackHandeled = false;
         this.isAttacking = false;
         this.attackTimer = 0;
+        this.attackTimerStarted = false;
+        this.holdAnimation = false;
+        this.recoilSlowEffectTimer = 0.2; //sec
 
         //physics ddependencies
         this.tileCollisionHandeler = new TileCollisionHandeler(this,32,32);
+
+        //attack dependencies
+        this.bulletHandeler = new BulletHandeler(this);
     }
     update(dt){
         // horizontal movement
@@ -242,7 +298,7 @@ class Player extends PhysicsRect{
         let right = this.game.globalInputs.rightPressed?1:0;
         this.direction = right-left;
         if(this.direction !=0){
-            this.flip = this.direction==1?true:false;
+            this.flip = this.direction==1?true:false; //true means player is facing right
         }
         if(this.game.globalInputs.shiftPressed && this.direction!=0){
             this.isRunning = true;
@@ -252,7 +308,7 @@ class Player extends PhysicsRect{
             this.runningSpeedFactor = 1;
         }
 
-        this.x = this.x + this.xVelocity*dt*this.runningSpeedFactor*this.direction;
+        this.x = this.x + this.xVelocity*dt*this.runningSpeedFactor*this.gunRecoilFactor*this.direction;
         this.tileCollisionHandeler.updatePhysicsTilesAround();
         this.tileCollisionHandeler.resolveHorizontalCollision();
         //gravity handel
@@ -269,7 +325,6 @@ class Player extends PhysicsRect{
         }
         //jump
         this.onAir = this.yVelocity!=0?true:false;
-
         this.isJumping = this.yVelocity<0?true:false;
         this.isFalling = this.yVelocity>0?true:false;
 
@@ -282,16 +337,24 @@ class Player extends PhysicsRect{
         if(this.isAttacking){
             this.attackTimer-=dt;
             if(this.attackTimer<=0){
-                this.attackHandeled = false;
                 this.isAttacking = false;
+                this.attackTimerStarted = false;
                 this.attackTimer = 0;
+                this.gunRecoilFactor = 1;
+                this.holdAnimation = false;
             }
         }
         if(this.game.globalInputs.attackPressed && !this.attackHandeled){
             this.attackHandeled = true;
             this.isAttacking = true;
-            this.attackTimer = this.game.assets.playerFire.animCompletionTime;
+            if(!this.attackTimerStarted){
+                this.attackTimer = this.game.assets.playerFire.animCompletionTime;
+                this.attackTimerStarted = true;
+                this.gunRecoilFactor = this.isRunning?0.5:0.8;
+                this.bulletHandeler.addBullet();
+            }
         }
+        this.bulletHandeler.update(dt);
         this.updateAnimationState(dt);
 
         this.prevX = this.x;
@@ -301,33 +364,64 @@ class Player extends PhysicsRect{
         //change state
         if(this.isJumping){
             this.newAnimState = PlayerAnimState.JUMP;
-            if(this.isAiming){
+            if(this.isAttacking){
+                if(this.currentAnimState==PlayerAnimState.WALK_FIRE || this.currentAnimState==PlayerAnimState.FIRE||this.currentAnimState==PlayerAnimState.RUN_FIRE){
+                    this.newAnimState=this.currentAnimState;
+                }else{
+                    this.newAnimState=PlayerAnimState.JUMP_FIRE;
+                }
+            }else if(this.isAiming){
                 this.newAnimState=PlayerAnimState.JUMP_AIM;
             }
         }else if(this.isFalling){
             this.newAnimState = PlayerAnimState.FALL;
-            if(this.isAiming){
+            if(this.isAttacking){
+                if(this.currentAnimState==PlayerAnimState.JUMP_FIRE){
+                    this.newAnimState=PlayerAnimState.JUMP_FIRE;
+                }else{
+                    this.newAnimState=PlayerAnimState.FALL_FIRE;
+                }
+            }else if(this.isAiming){
                 this.newAnimState=PlayerAnimState.FALL_AIM;
             }
         }else if(this.isRunning){
             this.newAnimState = PlayerAnimState.RUN;
-            if(this.isAiming){
+            if(this.isAttacking){
+                if(this.currentAnimState==PlayerAnimState.FALL_FIRE){
+                    this.newAnimState=PlayerAnimState.RUN;
+                }else{
+                    this.newAnimState=PlayerAnimState.RUN_FIRE;
+                }
+            }else if(this.isAiming){
                 this.newAnimState=PlayerAnimState.RUN_AIM;
             }
         }else if(this.direction!=0){
             this.newAnimState = PlayerAnimState.WALK;
-            if(this.isAiming){
+            if(this.isAttacking && !this.holdAnimation){
+                if(this.currentAnimState==PlayerAnimState.FALL_FIRE){
+                    this.newAnimState=PlayerAnimState.WALK;
+                }else{
+                    this.newAnimState=PlayerAnimState.WALK_FIRE;
+                }
+            }else if(this.isAiming){
                 this.newAnimState=PlayerAnimState.WALK_AIM;
             }
-        }else if(this.isAttacking){
-            this.newAnimState = PlayerAnimState.FIRE;
-        }else if(this.isAiming){
-            this.newAnimState = PlayerAnimState.IDLE_AIM;
         }else{
             this.newAnimState = PlayerAnimState.IDLE;
+            if(this.isAttacking){
+                if(this.currentAnimState==PlayerAnimState.FALL_FIRE || this.currentAnimState==PlayerAnimState.JUMP_FIRE){
+                    this.newAnimState=PlayerAnimState.IDLE;
+                }else{
+                    this.newAnimState = PlayerAnimState.FIRE;
+                    this.holdAnimation = true;
+                }
+            }else if(this.isAiming){
+                this.newAnimState = PlayerAnimState.IDLE_AIM;
+            }
         }
 
         if(this.newAnimState!=this.currentAnimState){
+            console.log(this.newAnimState);
             this.currentAnimState = this.newAnimState;
             switch(this.currentAnimState){
                 case(PlayerAnimState.JUMP):
@@ -363,6 +457,18 @@ class Player extends PhysicsRect{
                 case(PlayerAnimState.FIRE):
                     this.animationPlayer.setAnimation(this.game.assets.playerFire);
                     break;
+                case(PlayerAnimState.JUMP_FIRE):
+                    this.animationPlayer.setAnimation(this.game.assets.playerJumpFire);
+                    break;
+                case(PlayerAnimState.FALL_FIRE):
+                    this.animationPlayer.setAnimation(this.game.assets.playerFallFire);
+                    break;
+                case(PlayerAnimState.RUN_FIRE):
+                    this.animationPlayer.setAnimation(this.game.assets.playerRunFire);
+                case(PlayerAnimState.WALK_FIRE):
+                    this.animationPlayer.setAnimation(this.game.assets.playerWalkFire);
+                    break;
+                    break;
                 default:
                     break;
             }
@@ -396,6 +502,7 @@ class Player extends PhysicsRect{
         for(const tile of this.tileCollisionHandeler.physicsRectAround){
             ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
         }
+        this.bulletHandeler.render(ctx);
         
     }
 }
@@ -416,16 +523,16 @@ class GameInputs {
 class Game {
     constructor(){
         this.canvas = document.getElementById("game");
-        this.canvasW = 500;
-        this.canvasH = 500;
+        this.canvasW = 1080;
+        this.canvasH = 720;
         this.canvas.width = this.canvasW;
         this.canvas.height = this.canvasH;
         this.ctx = this.canvas.getContext("2d");
         this.ctx.imageSmoothingEnabled = false;
 
         this.vCanvas = document.createElement("canvas");
-        this.vCanvasW = 250;
-        this.vCanvasH = 250;
+        this.vCanvasW = this.canvasW/2;
+        this.vCanvasH = this.canvasH/2;
         this.vCanvas.width = this.vCanvasW;
         this.vCanvas.height = this.vCanvasH;
         this.vCtx = this.vCanvas.getContext("2d");
@@ -466,6 +573,7 @@ class Game {
         window.addEventListener("mouseup", (e) => {
             if(e.button===0){
                 this.globalInputs.attackPressed = false;
+                this.player.attackHandeled = false;
             }else if(e.button ===2){
                 this.globalInputs.aimPressed = false;
             }
@@ -528,6 +636,11 @@ class Game {
         this.playerJumpAim = await this.loader.loadImagesFromFolder("assets/male/jumpAim/",5);
         this.playerRunAim = await this.loader.loadImagesFromFolder("assets/male/runAim/",8);
         this.playerFallAim = await this.loader.loadImagesFromFolder("assets/male/fallAim/",5);
+        this.playerWalkFire = await this.loader.loadImagesFromFolder("assets/male/walkFire/",8);
+        this.playerJumpFire = await this.loader.loadImagesFromFolder("assets/male/jumpFire/",5);
+        this.playerFallFire = await this.loader.loadImagesFromFolder("assets/male/fallFire/",5);
+        this.playerRunFire = await this.loader.loadImagesFromFolder("assets/male/runFire/",8);
+        this.bullet = await this.loader.loadImagesFromFolder("assets/bullet/",5);
         this.assets = {
             "playerIdle" : new Animation(this.playerIdle,0.5,true,this.playerW,this.playerH),
             "playerWalk" : new Animation(this.playerWalk,0.65,true,this.playerW,this.playerH),
@@ -535,11 +648,16 @@ class Game {
             "playerFall" : new Animation(this.playerFall,0.65,true,this.playerW,this.playerH),
             "playerRun" : new Animation(this.playerRun,0.65,true,this.playerW,this.playerH),
             "playerAimIdle" : new Animation(this.playerAimIdle,0.5,true,this.playerW,this.playerH),
-            "playerFire" : new Animation(this.playerFire,0.5,false,this.playerW,this.playerH),
             "playerWalkAim" : new Animation(this.playerWalkAim,0.65,true,this.playerW,this.playerH),
             "playerRunAim" : new Animation(this.playerRunAim,0.65,true,this.playerW,this.playerH),
             "playerJumpAim" : new Animation(this.playerJumpAim,0.65,true,this.playerW,this.playerH),
             "playerFallAim" : new Animation(this.playerFallAim,0.65,true,this.playerW,this.playerH),
+            "playerFire" : new Animation(this.playerFire,0.5,false,this.playerW,this.playerH),
+            "playerRunFire" : new Animation(this.playerRunFire,0.8,false,this.playerW,this.playerH),
+            "playerWalkFire" : new Animation(this.playerWalkFire,0.8,false,this.playerW,this.playerH),
+            "playerJumpFire" : new Animation(this.playerJumpFire,0.65,false,this.playerW,this.playerH),
+            "playerFallFire" : new Animation(this.playerFallFire,0.5,false,this.playerW,this.playerH),
+            "bullet" : new Animation(this.bullet,0.5,true,this.bullet[0].width/2 + 10,this.bullet[0].height/2 + 2),
         }
     }
     gameloop(){
