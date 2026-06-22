@@ -1,1068 +1,1249 @@
 class Rect {
-  constructor(x,y,w,h){
+  constructor(x, y, w, h) {
     this.x = x;
     this.y = y;
     this.w = w;
     this.h = h;
   }
-  top(){
+  top() {
     return this.y;
   }
-  bottom(){
+  bottom() {
     return this.y + this.h;
   }
-  right(){
+  right() {
     return this.x + this.w;
   }
-  left(){
+  left() {
     return this.x;
   }
-  centerX(){
-    return this.x + (this.w / 2.0);
+  centerX() {
+    return this.x + this.w / 2.0;
   }
-  centerY(){
-    return this.y + (this.h / 2.0);
+  centerY() {
+    return this.y + this.h / 2.0;
   }
 }
 
 class PhysicsRect extends Rect {
-  constructor(x,y,w,h){
-    super(x,y,w,h);
+  constructor(x, y, w, h) {
+    super(x, y, w, h);
     this.prevX = x;
     this.prevY = y;
     this.gridX = 0;
     this.gridY = 0;
   }
-  intersects(rect){
-    return this.right() > rect.left() && this.bottom() > rect.top() &&
-    this.left() < rect.right() && this.top() < rect.bottom();
+  intersects(rect) {
+    return (
+      this.right() > rect.left() &&
+      this.bottom() > rect.top() &&
+      this.left() < rect.right() &&
+      this.top() < rect.bottom()
+    );
   }
-  intersectsPoint(x,y){
-    return this.right() > x && this.left() < x && y > this.top() && y < this.bottom();
+  intersectsPoint(x, y) {
+    return (
+      this.right() > x && this.left() < x && y > this.top() && y < this.bottom()
+    );
   }
 }
 class GameImage {
-    loadImage(path){
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.src = path;
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-        });
+  loadImage(path) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.src = path;
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+    });
   }
-    async loadImagesFromFolder(path, count){
-        const promises = [];
-        for(let i = 0; i < count; i++){
-            promises.push(this.loadImage(path + i + ".png").catch(err => {
-                console.log("Cannot load: " + path + i + ".png");
-                return null;
-            }));
-        }
-        return (await Promise.all(promises)).filter(Boolean);
+  async loadImagesFromFolder(path, count) {
+    const promises = [];
+    for (let i = 0; i < count; i++) {
+      promises.push(
+        this.loadImage(path + i + ".png").catch((err) => {
+          console.log("Cannot load: " + path + i + ".png");
+          return null;
+        }),
+      );
     }
+    return (await Promise.all(promises)).filter(Boolean);
+  }
 }
 const EntityType = {
-    ROBBER : "ROBBER",
-    PLAYER : "PLAYER"
-}
+  ROBBER: "ROBBER",
+  PLAYER: "PLAYER",
+};
 const PlayerAnimState = {
-    IDLE : "IDLE",
-    WALK : "WALK",
-    JUMP : "JUMP",
-    FALL : "FALL",
-    RUN : "RUN",
-    IDLE_AIM : "IDLE_AIM",
-    WALK_AIM : "WALK_AIM",
-    RUN_AIM : "RUN_AIM",
-    JUMP_AIM : "JUMP_AIM",
-    FALL_AIM : "FALL_AIM",
-    FIRE : "FIRE",
-    WALK_FIRE : "WALK_FIRE",
-    RUN_FIRE : "RUN_FIRE",
-    JUMP_FIRE : "JUMP_FIRE",
-    FALL_FIRE : "FALL_FIRE",
-    HURT : "HURT"
+  IDLE: "IDLE",
+  WALK: "WALK",
+  JUMP: "JUMP",
+  FALL: "FALL",
+  RUN: "RUN",
+  IDLE_AIM: "IDLE_AIM",
+  WALK_AIM: "WALK_AIM",
+  RUN_AIM: "RUN_AIM",
+  JUMP_AIM: "JUMP_AIM",
+  FALL_AIM: "FALL_AIM",
+  FIRE: "FIRE",
+  WALK_FIRE: "WALK_FIRE",
+  RUN_FIRE: "RUN_FIRE",
+  JUMP_FIRE: "JUMP_FIRE",
+  FALL_FIRE: "FALL_FIRE",
+  HURT: "HURT",
 };
 
 class Tile extends PhysicsRect {
-    constructor(x,y,w,h,camera,img){
-        super(x,y,w,h);
-        this.camera = camera;
-        this.img = img;
-    }
-    update(dt){}
-    render(ctx){
-        ctx.strokeStyle = "cyan";
-        ctx.strokeRect(this.x + this.camera.camOffsetX,this.y+this.camera.camOffsetY,this.w,this.h);
-    }
+  constructor(x, y, w, h, camera, img) {
+    super(x, y, w, h);
+    this.camera = camera;
+    this.img = img;
+  }
+  update(dt) {}
+  render(ctx) {
+    ctx.strokeStyle = "cyan";
+    ctx.strokeRect(
+      this.x + this.camera.camOffsetX,
+      this.y + this.camera.camOffsetY,
+      this.w,
+      this.h,
+    );
+  }
 }
 
 class TileMap {
-    constructor(tileW,tileH,camera){
-        this.camera = camera;
-        this.tileW = tileW;
-        this.tileH = tileH;
-        this.ongridTiles = new Map();
-        this.offGridTiles = new Map();
-        for(let i = 0; i<20; i++){
-            this.ongridTiles.set(""+i+",6",new Tile(0 + (i*32),6*32,32,32,this.camera,null));
-        }
-        this.onScreenTiles = [];
+  constructor(tileW, tileH, camera) {
+    this.camera = camera;
+    this.tileW = tileW;
+    this.tileH = tileH;
+    this.ongridTiles = new Map();
+    this.offGridTiles = new Map();
+    for (let i = 0; i < 20; i++) {
+      this.ongridTiles.set(
+        "" + i + ",6",
+        new Tile(0 + i * 32, 6 * 32, 32, 32, this.camera, null),
+      );
     }
-    render(ctx){
-        for (const tile of this.ongridTiles.values()) {
-            tile.render(ctx);
-        }
+    this.onScreenTiles = [];
+  }
+  render(ctx) {
+    for (const tile of this.ongridTiles.values()) {
+      tile.render(ctx);
     }
-    checkForPhysicsTile(gridx,gridy){
-        return this.ongridTiles.has(gridx+","+gridy);
-    }
+  }
+  checkForPhysicsTile(gridx, gridy) {
+    return this.ongridTiles.has(gridx + "," + gridy);
+  }
 }
 class Animation {
-    constructor(imgArray,animCompletionTime,loop,entityWidth,entityHeight){
-        this.imgs = imgArray;
-        this.looping = loop;
-        this.frames = this.imgs.length;
-        this.animCompletionTime = animCompletionTime;
-        this.frameTime = this.animCompletionTime/this.frames; //seconds
-        this.xOffset = entityWidth/2 - this.imgs[0].width/2;
-        this.yOffset = entityHeight - this.imgs[0].height;
-    }
+  constructor(imgArray, animCompletionTime, loop, entityWidth, entityHeight) {
+    this.imgs = imgArray;
+    this.looping = loop;
+    this.frames = this.imgs.length;
+    this.animCompletionTime = animCompletionTime;
+    this.frameTime = this.animCompletionTime / this.frames; //seconds
+    this.xOffset = entityWidth / 2 - this.imgs[0].width / 2;
+    this.yOffset = entityHeight - this.imgs[0].height;
+  }
 }
 
 class AnimationPlayer {
-    constructor(){
-        this.animation = null;
-        this.animTime = 0;
-        this.frameTime = 0;
-        this.frameIndex = 0;
-        this.done = false
+  constructor() {
+    this.animation = null;
+    this.animTime = 0;
+    this.frameTime = 0;
+    this.frameIndex = 0;
+    this.done = false;
+  }
+  update(dt) {
+    this.animTime += dt;
+    this.frameTime += dt;
+    if (this.frameTime >= this.animation.frameTime) {
+      this.frameTime -= this.animation.frameTime;
+      if (this.animation.looping) {
+        this.frameIndex = (this.frameIndex + 1) % this.animation.frames;
+      } else {
+        this.frameIndex = Math.min(
+          this.frameIndex + 1,
+          this.animation.frames - 1,
+        );
+        this.done = true;
+      }
     }
-    update(dt){
-        this.animTime += dt;
-        this.frameTime += dt;
-        if(this.frameTime >= this.animation.frameTime){
-            this.frameTime -= this.animation.frameTime;
-            if(this.animation.looping){
-                this.frameIndex = (this.frameIndex + 1)% this.animation.frames;
-            }else{
-                this.frameIndex = Math.min(this.frameIndex+1,this.animation.frames-1);
-                this.done = true;
-            }
-        }
-    }
-    getCurrentFrame(){
-        return this.animation.imgs[this.frameIndex];
-    }
-    setAnimation(anim){
-        this.reset();
-        this.animation = anim;
-    }
-    reset(){
-        this.animTime = 0;
-        this.frameTime = 0;
-        this.frameIndex = 0;
-    }
+  }
+  getCurrentFrame() {
+    return this.animation.imgs[this.frameIndex];
+  }
+  setAnimation(anim) {
+    this.reset();
+    this.animation = anim;
+  }
+  reset() {
+    this.animTime = 0;
+    this.frameTime = 0;
+    this.frameIndex = 0;
+  }
 }
 
 class TileCollisionHandeler {
-    constructor(entity,tileW,tileH){
-        this.entity = entity;
-        this.tileW = tileW;
-        this.tileH = tileH;
-        this.physicsRectAround = [];
-    }
-    resolveHorizontalCollision(){
-        for(const tile of this.physicsRectAround){
-            if(tile.intersects(this.entity)){
-                //horisontal resolve
-                if(this.entity.direction==1){
-                    this.entity.x = tile.left() - this.entity.w;
-                    console.log(tile.x+","+tile.y+"resolved to right");
-                }else if(this.entity.direction==-1){
-                    this.entity.x = tile.right();
-                    console.log(tile.x+","+tile.y+"resolved to left");
-                }
-            }
+  constructor(entity, tileW, tileH) {
+    this.entity = entity;
+    this.tileW = tileW;
+    this.tileH = tileH;
+    this.physicsRectAround = [];
+  }
+  resolveHorizontalCollision() {
+    for (const tile of this.physicsRectAround) {
+      if (tile.intersects(this.entity)) {
+        //horisontal resolve
+        if (this.entity.direction == 1) {
+          this.entity.x = tile.left() - this.entity.w;
+          console.log(tile.x + "," + tile.y + "resolved to right");
+        } else if (this.entity.direction == -1) {
+          this.entity.x = tile.right();
+          console.log(tile.x + "," + tile.y + "resolved to left");
         }
+      }
     }
-    resolveVerticalCollision(){
-        for(const tile of this.physicsRectAround){
-            if(tile.intersects(this.entity)){
-                //vertical resolve
-                if(this.entity.yVelocity>0){
-                    this.entity.y = tile.top() - this.entity.h;
-                    this.entity.yVelocity = 0;
-                }else if(this.entity.yVelocity<0){
-                    this.entity.y = tile.bottom();
-                    this.entity.yVelocity = 0;
-                }
-            }
+  }
+  resolveVerticalCollision() {
+    for (const tile of this.physicsRectAround) {
+      if (tile.intersects(this.entity)) {
+        //vertical resolve
+        if (this.entity.yVelocity > 0) {
+          this.entity.y = tile.top() - this.entity.h;
+          this.entity.yVelocity = 0;
+        } else if (this.entity.yVelocity < 0) {
+          this.entity.y = tile.bottom();
+          this.entity.yVelocity = 0;
         }
+      }
     }
-    updatePhysicsTilesAround(){
-        this.physicsRectAround = [];
-        let gridLeft = Math.floor(this.entity.left()/this.tileW);
-        let gridRight = Math.ceil(this.entity.right()/this.tileW);
-        let gridTop = Math.floor(this.entity.top()/this.tileH);
-        let gridBottom = Math.ceil(this.entity.bottom()/this.tileH);
-        for(let i=gridLeft; i<=gridRight; i++){
-            for(let j=gridTop; j<=gridBottom; j++){
-                const tile = this.entity.game.tileMap.ongridTiles.get(`${i},${j}`);
-                if(tile!=null){
-                    this.physicsRectAround.push(tile);
-                }
-            }
+  }
+  updatePhysicsTilesAround() {
+    this.physicsRectAround = [];
+    let gridLeft = Math.floor(this.entity.left() / this.tileW);
+    let gridRight = Math.ceil(this.entity.right() / this.tileW);
+    let gridTop = Math.floor(this.entity.top() / this.tileH);
+    let gridBottom = Math.ceil(this.entity.bottom() / this.tileH);
+    for (let i = gridLeft; i <= gridRight; i++) {
+      for (let j = gridTop; j <= gridBottom; j++) {
+        const tile = this.entity.game.tileMap.ongridTiles.get(`${i},${j}`);
+        if (tile != null) {
+          this.physicsRectAround.push(tile);
         }
+      }
     }
+  }
 }
 
 class Bullet extends PhysicsRect {
-    constructor(entity,x,y,w,h,direction,anim){
-        super(x,y,w,h);
-        this.entity = entity;
-        this.direction = direction;
-        this.xVelocity = 800; //px per second
-        this.bulletAnim = anim;
-        this.bulletAnimPlayer = new AnimationPlayer();
-        this.bulletAnimPlayer.animation = this.bulletAnim;
-        this.damageApplied = false;
-    }
-    update(dt){
-        this.x += this.xVelocity * dt * this.direction;
-        this.bulletAnimPlayer.update(dt);
-    }
-    render(ctx){
-        const img = this.bulletAnimPlayer.getCurrentFrame();
-        ctx.drawImage(
-            img,
-            this.x+this.bulletAnim.xOffset + this.entity.game.camera.camOffsetX,
-            this.y+this.bulletAnim.yOffset + this.entity.game.camera.camOffsetY);
-        //ctx.strokeStyle = "red";
-        //ctx.strokeRect(this.x,this.y,this.w,this.h);
-    }
+  constructor(entity, x, y, w, h, direction, anim) {
+    super(x, y, w, h);
+    this.entity = entity;
+    this.direction = direction;
+    this.xVelocity = 800; //px per second
+    this.bulletAnim = anim;
+    this.bulletAnimPlayer = new AnimationPlayer();
+    this.bulletAnimPlayer.animation = this.bulletAnim;
+    this.damageApplied = false;
+  }
+  update(dt) {
+    this.x += this.xVelocity * dt * this.direction;
+    this.bulletAnimPlayer.update(dt);
+  }
+  render(ctx) {
+    const img = this.bulletAnimPlayer.getCurrentFrame();
+    ctx.drawImage(
+      img,
+      this.x + this.bulletAnim.xOffset + this.entity.game.camera.camOffsetX,
+      this.y + this.bulletAnim.yOffset + this.entity.game.camera.camOffsetY,
+    );
+    //ctx.strokeStyle = "red";
+    //ctx.strokeRect(this.x,this.y,this.w,this.h);
+  }
 }
 
 class BulletHandeler {
-    constructor(entity){
-        this.entity = entity;
-        this.bullets = [];
-    }
-    update(dt){
-        for(const bullet of this.bullets){
-            bullet.update(dt);
-            //bullet goes out of bound
-            if(!bullet.intersects(this.entity.game.gameRenderingRect)){
-                this.removeBullet(bullet);
-            }
-            if(this.entity.entityType==EntityType.PLAYER){
-                if(bullet.intersects(this.entity.game.robber)){
-                    if(!bullet.damageApplied){
-                        bullet.damageApplied = true;
-                        this.entity.game.robber.takeDamage();
-                    }
-                    this.removeBullet(bullet);
-                }
-            }else if(this.entity.entityType==EntityType.ROBBER){
-                if(bullet.intersects(this.entity.game.player)){
-                    if(!bullet.damageApplied){
-                        bullet.damageApplied = true;
-                        this.entity.game.player.takeDamage();
-                    }
-                    this.removeBullet(bullet);
-                }
-            }
-            //bullet collides with Physics Rect
+  constructor(entity) {
+    this.entity = entity;
+    this.bullets = [];
+  }
+  update(dt) {
+    for (const bullet of this.bullets) {
+      bullet.update(dt);
+      //bullet goes out of bound
+      if (!bullet.intersects(this.entity.game.gameRenderingRect)) {
+        this.removeBullet(bullet);
+      }
+      if (this.entity.entityType == EntityType.PLAYER) {
+        if (bullet.intersects(this.entity.game.robber)) {
+          if (!bullet.damageApplied) {
+            bullet.damageApplied = true;
+            this.entity.game.robber.takeDamage();
+          }
+          this.removeBullet(bullet);
         }
-    }
-    render(ctx){
-        for(const bullet of this.bullets){
-            bullet.render(ctx);
+      } else if (this.entity.entityType == EntityType.ROBBER) {
+        if (bullet.intersects(this.entity.game.player)) {
+          if (!bullet.damageApplied) {
+            bullet.damageApplied = true;
+            this.entity.game.player.takeDamage();
+          }
+          this.removeBullet(bullet);
         }
+      }
+      //bullet collides with Physics Rect
     }
-    addBullet(){
-        let direction = this.entity.flip?1:-1;
-        const anim = this.entity.game.assets.bullet;
-        this.bullets.push(new Bullet(this.entity,this.entity.centerX(),this.entity.centerY()-15,anim.imgs[0].width,anim.imgs[0].height/4,direction,anim));
+  }
+  render(ctx) {
+    for (const bullet of this.bullets) {
+      bullet.render(ctx);
     }
-    removeBullet(bullet){
-        let id = this.bullets.indexOf(bullet);
-        this.bullets.splice(id,1);
-    }
+  }
+  addBullet() {
+    let direction = this.entity.flip ? 1 : -1;
+    const anim = this.entity.game.assets.bullet;
+    this.bullets.push(
+      new Bullet(
+        this.entity,
+        this.entity.centerX(),
+        this.entity.centerY() - 15,
+        anim.imgs[0].width,
+        anim.imgs[0].height / 4,
+        direction,
+        anim,
+      ),
+    );
+  }
+  removeBullet(bullet) {
+    let id = this.bullets.indexOf(bullet);
+    this.bullets.splice(id, 1);
+  }
 }
 
-class Player extends PhysicsRect{
-    constructor(game,x,y,w,h){
-        super(x,y,w,h);
-        this.game = game;
-        this.init();
+class Player extends PhysicsRect {
+  constructor(game, x, y, w, h) {
+    super(x, y, w, h);
+    this.game = game;
+    this.init();
+  }
+  init() {
+    this.entityType = EntityType.PLAYER;
+    this.direction = null;
+    this.xVelocity = 47; //px per second
+    this.yVelocity = 0; //px per second
+    this.jumpVelocity = -this.game.gravity / 2.2;
+    this.runningSpeedFactor = 1;
+    this.gunRecoilFactor = 1; // making movement speed slower
+
+    //visuals
+    this.img = this.game.playerIdle[2];
+    this.currentAnimState = PlayerAnimState.IDLE;
+    this.newAnimState = null;
+    this.animationPlayer = new AnimationPlayer();
+    this.animationPlayer.setAnimation(this.game.assets.playerIdle);
+    this.flip = false;
+
+    //special effects
+    this.offscreenCanvas = document.createElement("canvas");
+    this.offscreenCtx = this.offscreenCanvas.getContext("2d");
+    this.flashColor = "red";
+    this.flashColorSwapTime = 0.05;
+    this.flashColorSwapTimer = this.flashColorSwapTime; //secs
+
+    //inputs, states and timers
+    this.isJumping = false;
+    this.isFalling = false;
+    this.isRunning = false;
+    this.onAir = false;
+    this.isAiming = false;
+    this.attackHandeled = false;
+    this.isAttacking = false;
+    this.attackTimer = 0;
+    this.attackTimerStarted = false;
+    this.holdAnimation = false;
+    this.recoilSlowEffectTimer = 0.2; //sec
+
+    //physics ddependencies
+    this.tileCollisionHandeler = new TileCollisionHandeler(this, 32, 32);
+
+    //attack dependencies
+    this.bulletHandeler = new BulletHandeler(this);
+    this.takingDamage = false;
+    this.takingDamageTimer = 0;
+  }
+  update(dt) {
+    // horizontal movement
+    let left = this.game.globalInputs.leftPressed ? 1 : 0;
+    let right = this.game.globalInputs.rightPressed ? 1 : 0;
+    this.direction = right - left;
+    if (this.direction != 0) {
+      this.flip = this.direction == 1 ? true : false; //true means player is facing right
     }
-    init(){
-        this.entityType = EntityType.PLAYER;
-        this.direction = null;
-        this.xVelocity = 47; //px per second
-        this.yVelocity = 0; //px per second
-        this.jumpVelocity = -this.game.gravity/2.2;
-        this.runningSpeedFactor = 1;
-        this.gunRecoilFactor = 1; // making movement speed slower
+    if (this.game.globalInputs.shiftPressed && this.direction != 0) {
+      this.isRunning = true;
+      this.runningSpeedFactor = 2.1;
+    } else {
+      this.isRunning = false;
+      this.runningSpeedFactor = 1;
+    }
 
-        //visuals
-        this.img = this.game.playerIdle[2];
-        this.currentAnimState = PlayerAnimState.IDLE;
-        this.newAnimState = null;
-        this.animationPlayer = new AnimationPlayer();
-        this.animationPlayer.setAnimation(this.game.assets.playerIdle);
-        this.flip = false;
+    this.x =
+      this.x +
+      this.xVelocity *
+        dt *
+        this.runningSpeedFactor *
+        this.gunRecoilFactor *
+        this.direction;
 
-        //special effects
-        this.offscreenCanvas = document.createElement("canvas");
-        this.offscreenCtx = this.offscreenCanvas.getContext("2d");
-        this.flashColor = "red";
-        this.flashColorSwapTime = 0.05;
-        this.flashColorSwapTimer = this.flashColorSwapTime; //secs
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.tileCollisionHandeler.resolveHorizontalCollision();
+    //gravity handel
+    this.yVelocity += this.game.gravity * dt;
+    this.y = this.y + this.yVelocity * dt;
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.tileCollisionHandeler.resolveVerticalCollision();
+    //collision handel
 
-        //inputs, states and timers
-        this.isJumping = false;
-        this.isFalling = false;
-        this.isRunning = false;
-        this.onAir = false;
-        this.isAiming = false;
-        this.attackHandeled = false;
+    //bottom collision
+    if (this.bottom() > this.game.vCanvasH) {
+      this.y = this.game.vCanvasH - this.h;
+      this.yVelocity = 0;
+    }
+    //jump
+    this.onAir = this.yVelocity != 0 ? true : false;
+    this.isJumping = this.yVelocity < 0 ? true : false;
+    this.isFalling = this.yVelocity > 0 ? true : false;
+
+    if (
+      this.game.globalInputs.jumpPressed &&
+      !this.game.globalInputs.jumpHandeled
+    ) {
+      this.game.globalInputs.jumpHandeled = true;
+      this.yVelocity = this.jumpVelocity;
+    }
+
+    this.isAiming = this.game.globalInputs.aimPressed ? true : false;
+    if (this.isAttacking) {
+      this.attackTimer -= dt;
+      if (this.attackTimer <= 0) {
         this.isAttacking = false;
-        this.attackTimer = 0;
         this.attackTimerStarted = false;
+        this.attackTimer = 0;
+        this.gunRecoilFactor = 1;
         this.holdAnimation = false;
-        this.recoilSlowEffectTimer = 0.2; //sec
+      }
+    }
+    if (this.game.globalInputs.attackPressed && !this.attackHandeled) {
+      this.attackHandeled = true;
+      this.isAttacking = true;
+      if (!this.attackTimerStarted) {
+        this.attackTimer = this.game.assets.playerFire.animCompletionTime;
+        this.attackTimerStarted = true;
+        this.gunRecoilFactor = this.isRunning ? 0.5 : 0.8;
+        this.bulletHandeler.addBullet();
+      }
+    }
+    this.bulletHandeler.update(dt);
 
-        //physics ddependencies
-        this.tileCollisionHandeler = new TileCollisionHandeler(this,32,32);
-
-        //attack dependencies
-        this.bulletHandeler = new BulletHandeler(this);
+    if (this.takingDamage) {
+      this.takingDamageTimer -= dt;
+      if (this.takingDamageTimer <= 0) {
         this.takingDamage = false;
-        this.takingDamageTimer = 0;
+      }
+      this.flashColorSwapTimer -= dt;
+      if (this.flashColorSwapTimer <= 0) {
+        this.flashColorSwapTimer = this.flashColorSwapTime;
+        if (this.flashColor == "red") {
+          this.flashColor = "white";
+        } else {
+          this.flashColor = "red";
+        }
+      }
     }
-    update(dt){
-        // horizontal movement
-        let left = this.game.globalInputs.leftPressed?1:0;
-        let right = this.game.globalInputs.rightPressed?1:0;
-        this.direction = right-left;
-        if(this.direction !=0){
-            this.flip = this.direction==1?true:false; //true means player is facing right
-        }
-        if(this.game.globalInputs.shiftPressed && this.direction!=0){
-            this.isRunning = true;
-            this.runningSpeedFactor = 2.1;
-        }else{
-            this.isRunning = false;
-            this.runningSpeedFactor = 1;
-        }
 
-        this.x = this.x + this.xVelocity*dt*this.runningSpeedFactor*this.gunRecoilFactor*this.direction;
+    this.updateAnimationState(dt);
 
-        this.tileCollisionHandeler.updatePhysicsTilesAround();
-        this.tileCollisionHandeler.resolveHorizontalCollision();
-        //gravity handel
-        this.yVelocity += this.game.gravity*dt;
-        this.y = this.y + this.yVelocity*dt;
-        this.tileCollisionHandeler.updatePhysicsTilesAround();
-        this.tileCollisionHandeler.resolveVerticalCollision();
-        //collision handel
-        
-        //bottom collision
-        if(this.bottom()>this.game.vCanvasH){
-            this.y = this.game.vCanvasH - this.h;
-            this.yVelocity = 0;
+    this.prevX = this.x;
+    this.prevY = this.y;
+  }
+  updateAnimationState(dt) {
+    //change state
+    if (this.takingDamage) {
+      this.newAnimState = PlayerAnimState.HURT;
+    } else if (this.isJumping) {
+      this.newAnimState = PlayerAnimState.JUMP;
+      if (this.isAttacking) {
+        if (
+          this.currentAnimState == PlayerAnimState.WALK_FIRE ||
+          this.currentAnimState == PlayerAnimState.FIRE ||
+          this.currentAnimState == PlayerAnimState.RUN_FIRE
+        ) {
+          this.newAnimState = this.currentAnimState;
+        } else {
+          this.newAnimState = PlayerAnimState.JUMP_FIRE;
         }
-        //jump
-        this.onAir = this.yVelocity!=0?true:false;
-        this.isJumping = this.yVelocity<0?true:false;
-        this.isFalling = this.yVelocity>0?true:false;
-
-        if(this.game.globalInputs.jumpPressed && !this.game.globalInputs.jumpHandeled){
-            this.game.globalInputs.jumpHandeled = true;
-            this.yVelocity = this.jumpVelocity;
+      } else if (this.isAiming) {
+        this.newAnimState = PlayerAnimState.JUMP_AIM;
+      }
+    } else if (this.isFalling) {
+      this.newAnimState = PlayerAnimState.FALL;
+      if (this.isAttacking) {
+        if (this.currentAnimState == PlayerAnimState.JUMP_FIRE) {
+          this.newAnimState = PlayerAnimState.JUMP_FIRE;
+        } else {
+          this.newAnimState = PlayerAnimState.FALL_FIRE;
         }
-
-        this.isAiming = this.game.globalInputs.aimPressed?true:false;
-        if(this.isAttacking){
-            this.attackTimer-=dt;
-            if(this.attackTimer<=0){
-                this.isAttacking = false;
-                this.attackTimerStarted = false;
-                this.attackTimer = 0;
-                this.gunRecoilFactor = 1;
-                this.holdAnimation = false;
-            }
+      } else if (this.isAiming) {
+        this.newAnimState = PlayerAnimState.FALL_AIM;
+      }
+    } else if (this.isRunning) {
+      this.newAnimState = PlayerAnimState.RUN;
+      if (this.isAttacking) {
+        if (this.currentAnimState == PlayerAnimState.FALL_FIRE) {
+          this.newAnimState = PlayerAnimState.RUN;
+        } else {
+          this.newAnimState = PlayerAnimState.RUN_FIRE;
         }
-        if(this.game.globalInputs.attackPressed && !this.attackHandeled){
-            this.attackHandeled = true;
-            this.isAttacking = true;
-            if(!this.attackTimerStarted){
-                this.attackTimer = this.game.assets.playerFire.animCompletionTime;
-                this.attackTimerStarted = true;
-                this.gunRecoilFactor = this.isRunning?0.5:0.8;
-                this.bulletHandeler.addBullet();
-            }
+      } else if (this.isAiming) {
+        this.newAnimState = PlayerAnimState.RUN_AIM;
+      }
+    } else if (this.direction != 0) {
+      this.newAnimState = PlayerAnimState.WALK;
+      if (this.isAttacking && !this.holdAnimation) {
+        if (this.currentAnimState == PlayerAnimState.FALL_FIRE) {
+          this.newAnimState = PlayerAnimState.WALK;
+        } else {
+          this.newAnimState = PlayerAnimState.WALK_FIRE;
         }
-        this.bulletHandeler.update(dt);
-
-        if(this.takingDamage){
-            this.takingDamageTimer-=dt;
-            if(this.takingDamageTimer<=0){
-                this.takingDamage=false;
-            }
-            this.flashColorSwapTimer-=dt;
-            if(this.flashColorSwapTimer<=0){
-                this.flashColorSwapTimer = this.flashColorSwapTime;
-                if(this.flashColor=="red"){
-                    this.flashColor="white";
-                }else{
-                    this.flashColor = "red";
-                }
-            }
+      } else if (this.isAiming) {
+        this.newAnimState = PlayerAnimState.WALK_AIM;
+      }
+    } else {
+      this.newAnimState = PlayerAnimState.IDLE;
+      if (this.isAttacking) {
+        if (
+          this.currentAnimState == PlayerAnimState.FALL_FIRE ||
+          this.currentAnimState == PlayerAnimState.JUMP_FIRE
+        ) {
+          this.newAnimState = PlayerAnimState.IDLE;
+        } else {
+          this.newAnimState = PlayerAnimState.FIRE;
+          this.holdAnimation = true;
         }
-
-        this.updateAnimationState(dt);
-
-        this.prevX = this.x;
-        this.prevY = this.y;
+      } else if (this.isAiming) {
+        this.newAnimState = PlayerAnimState.IDLE_AIM;
+      }
     }
-    updateAnimationState(dt){
-        //change state
-        if(this.takingDamage){
-            this.newAnimState = PlayerAnimState.HURT;
-        }else if(this.isJumping){
-            this.newAnimState = PlayerAnimState.JUMP;
-            if(this.isAttacking){
-                if(this.currentAnimState==PlayerAnimState.WALK_FIRE || this.currentAnimState==PlayerAnimState.FIRE||this.currentAnimState==PlayerAnimState.RUN_FIRE){
-                    this.newAnimState=this.currentAnimState;
-                }else{
-                    this.newAnimState=PlayerAnimState.JUMP_FIRE;
-                }
-            }else if(this.isAiming){
-                this.newAnimState=PlayerAnimState.JUMP_AIM;
-            }
-        }else if(this.isFalling){
-            this.newAnimState = PlayerAnimState.FALL;
-            if(this.isAttacking){
-                if(this.currentAnimState==PlayerAnimState.JUMP_FIRE){
-                    this.newAnimState=PlayerAnimState.JUMP_FIRE;
-                }else{
-                    this.newAnimState=PlayerAnimState.FALL_FIRE;
-                }
-            }else if(this.isAiming){
-                this.newAnimState=PlayerAnimState.FALL_AIM;
-            }
-        }else if(this.isRunning){
-            this.newAnimState = PlayerAnimState.RUN;
-            if(this.isAttacking){
-                if(this.currentAnimState==PlayerAnimState.FALL_FIRE){
-                    this.newAnimState=PlayerAnimState.RUN;
-                }else{
-                    this.newAnimState=PlayerAnimState.RUN_FIRE;
-                }
-            }else if(this.isAiming){
-                this.newAnimState=PlayerAnimState.RUN_AIM;
-            }
-        }else if(this.direction!=0){
-            this.newAnimState = PlayerAnimState.WALK;
-            if(this.isAttacking && !this.holdAnimation){
-                if(this.currentAnimState==PlayerAnimState.FALL_FIRE){
-                    this.newAnimState=PlayerAnimState.WALK;
-                }else{
-                    this.newAnimState=PlayerAnimState.WALK_FIRE;
-                }
-            }else if(this.isAiming){
-                this.newAnimState=PlayerAnimState.WALK_AIM;
-            }
-        }else{
-            this.newAnimState = PlayerAnimState.IDLE;
-            if(this.isAttacking){
-                if(this.currentAnimState==PlayerAnimState.FALL_FIRE || this.currentAnimState==PlayerAnimState.JUMP_FIRE){
-                    this.newAnimState=PlayerAnimState.IDLE;
-                }else{
-                    this.newAnimState = PlayerAnimState.FIRE;
-                    this.holdAnimation = true;
-                }
-            }else if(this.isAiming){
-                this.newAnimState = PlayerAnimState.IDLE_AIM;
-            }
-        }
 
-        if(this.newAnimState!=this.currentAnimState){
-            this.currentAnimState = this.newAnimState;
-            switch(this.currentAnimState){
-                case(PlayerAnimState.JUMP):
-                    this.animationPlayer.setAnimation(this.game.assets.playerJump);
-                    break;
-                case(PlayerAnimState.FALL):
-                    this.animationPlayer.setAnimation(this.game.assets.playerFall);
-                    break;
-                case(PlayerAnimState.RUN):
-                    this.animationPlayer.setAnimation(this.game.assets.playerRun);
-                    break;
-                case(PlayerAnimState.WALK):
-                    this.animationPlayer.setAnimation(this.game.assets.playerWalk);
-                    break;
-                case(PlayerAnimState.IDLE):
-                    this.animationPlayer.setAnimation(this.game.assets.playerIdle);
-                    break;
-                case(PlayerAnimState.IDLE_AIM):
-                    this.animationPlayer.setAnimation(this.game.assets.playerAimIdle);
-                    break;
-                case(PlayerAnimState.WALK_AIM):
-                    this.animationPlayer.setAnimation(this.game.assets.playerWalkAim);
-                    break;
-                case(PlayerAnimState.RUN_AIM):
-                    this.animationPlayer.setAnimation(this.game.assets.playerRunAim);
-                    break;
-                case(PlayerAnimState.JUMP_AIM):
-                    this.animationPlayer.setAnimation(this.game.assets.playerJumpAim);
-                    break;
-                case(PlayerAnimState.FALL_AIM):
-                    this.animationPlayer.setAnimation(this.game.assets.playerFallAim);
-                    break;
-                case(PlayerAnimState.FIRE):
-                    this.animationPlayer.setAnimation(this.game.assets.playerFire);
-                    break;
-                case(PlayerAnimState.JUMP_FIRE):
-                    this.animationPlayer.setAnimation(this.game.assets.playerJumpFire);
-                    break;
-                case(PlayerAnimState.FALL_FIRE):
-                    this.animationPlayer.setAnimation(this.game.assets.playerFallFire);
-                    break;
-                case(PlayerAnimState.RUN_FIRE):
-                    this.animationPlayer.setAnimation(this.game.assets.playerRunFire);
-                case(PlayerAnimState.WALK_FIRE):
-                    this.animationPlayer.setAnimation(this.game.assets.playerWalkFire);
-                    break;
-                default:
-                    break;
-            }
-        }
-        
-        this.animationPlayer.update(dt);
+    if (this.newAnimState != this.currentAnimState) {
+      this.currentAnimState = this.newAnimState;
+      switch (this.currentAnimState) {
+        case PlayerAnimState.JUMP:
+          this.animationPlayer.setAnimation(this.game.assets.playerJump);
+          break;
+        case PlayerAnimState.FALL:
+          this.animationPlayer.setAnimation(this.game.assets.playerFall);
+          break;
+        case PlayerAnimState.RUN:
+          this.animationPlayer.setAnimation(this.game.assets.playerRun);
+          break;
+        case PlayerAnimState.WALK:
+          this.animationPlayer.setAnimation(this.game.assets.playerWalk);
+          break;
+        case PlayerAnimState.IDLE:
+          this.animationPlayer.setAnimation(this.game.assets.playerIdle);
+          break;
+        case PlayerAnimState.IDLE_AIM:
+          this.animationPlayer.setAnimation(this.game.assets.playerAimIdle);
+          break;
+        case PlayerAnimState.WALK_AIM:
+          this.animationPlayer.setAnimation(this.game.assets.playerWalkAim);
+          break;
+        case PlayerAnimState.RUN_AIM:
+          this.animationPlayer.setAnimation(this.game.assets.playerRunAim);
+          break;
+        case PlayerAnimState.JUMP_AIM:
+          this.animationPlayer.setAnimation(this.game.assets.playerJumpAim);
+          break;
+        case PlayerAnimState.FALL_AIM:
+          this.animationPlayer.setAnimation(this.game.assets.playerFallAim);
+          break;
+        case PlayerAnimState.FIRE:
+          this.animationPlayer.setAnimation(this.game.assets.playerFire);
+          break;
+        case PlayerAnimState.JUMP_FIRE:
+          this.animationPlayer.setAnimation(this.game.assets.playerJumpFire);
+          break;
+        case PlayerAnimState.FALL_FIRE:
+          this.animationPlayer.setAnimation(this.game.assets.playerFallFire);
+          break;
+        case PlayerAnimState.RUN_FIRE:
+          this.animationPlayer.setAnimation(this.game.assets.playerRunFire);
+        case PlayerAnimState.WALK_FIRE:
+          this.animationPlayer.setAnimation(this.game.assets.playerWalkFire);
+          break;
+        default:
+          break;
+      }
     }
-    takeDamage(){
-            this.takingDamage = true;
-            this.takingDamageTimer = 0.2;
-    }
-    render(ctx){
-        this.img = this.animationPlayer.getCurrentFrame();
-        const drawX = this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX;
-        const drawY = this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY;
-        if(this.img!=null){
-            if(this.takingDamage){
-                if(this.flip){
-                    ctx.save();
-                    ctx.translate(drawX + this.img.width, drawY);
-                    ctx.scale(-1, 1);
-                    this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
-                    ctx.restore();
-                }else{
-                    this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
-                }
-            }
-            else if (this.flip) {
-                ctx.save();
-                ctx.translate(drawX + this.img.width, drawY);
-                ctx.scale(-1, 1);
-                ctx.drawImage(this.img, 0, 0);
-                ctx.restore();
-            } else {
-                ctx.drawImage(this.img, drawX, drawY);
-            }
-            //Actual Physical debug rect
-            ctx.strokeStyle = "cyan";
-            ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
-            //Image debug rect
-            // ctx.strokeStyle = "red";
-            // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
-        }else{
-            ctx.fillStyle = "cyan";
-            ctx.fillRect(this.x,this.y,this.w,this.h);
-        }
-        // ctx.fillStyle = "red";
-        // for(const tile of this.tileCollisionHandeler.physicsRectAround){
-        //     ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
-        // }
-        this.bulletHandeler.render(ctx);
-    }
-    renderHurtFlash(ctx, img, x, y, flashColor){
-        this.offscreenCanvas.width = img.width;
-        this.offscreenCanvas.height = img.height;
-        this.offscreenCtx.clearRect(0, 0, img.width, img.height);
-        this.offscreenCtx.drawImage(img,0, 0);
 
-        this.offscreenCtx.globalCompositeOperation = "source-in";
-        this.offscreenCtx.fillStyle = flashColor;
-        this.offscreenCtx.fillRect(0, 0, img.width, img.height);
-        ctx.drawImage(this.offscreenCanvas, x, y);
+    this.animationPlayer.update(dt);
+  }
+  takeDamage() {
+    this.takingDamage = true;
+    this.takingDamageTimer = 0.2;
+  }
+  render(ctx) {
+    this.img = this.animationPlayer.getCurrentFrame();
+    const drawX =
+      this.x +
+      this.animationPlayer.animation.xOffset +
+      this.game.camera.camOffsetX;
+    const drawY =
+      this.y +
+      this.animationPlayer.animation.yOffset +
+      this.game.camera.camOffsetY;
+    if (this.img != null) {
+      if (this.takingDamage) {
+        if (this.flip) {
+          ctx.save();
+          ctx.translate(drawX + this.img.width, drawY);
+          ctx.scale(-1, 1);
+          this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
+          ctx.restore();
+        } else {
+          this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
+        }
+      } else if (this.flip) {
+        ctx.save();
+        ctx.translate(drawX + this.img.width, drawY);
+        ctx.scale(-1, 1);
+        ctx.drawImage(this.img, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.drawImage(this.img, drawX, drawY);
+      }
+      //Actual Physical debug rect
+      ctx.strokeStyle = "cyan";
+      ctx.strokeRect(
+        this.x + this.game.camera.camOffsetX,
+        this.y + this.game.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
+      //Image debug rect
+      // ctx.strokeStyle = "red";
+      // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
+    } else {
+      ctx.fillStyle = "cyan";
+      ctx.fillRect(this.x, this.y, this.w, this.h);
     }
+    // ctx.fillStyle = "red";
+    // for(const tile of this.tileCollisionHandeler.physicsRectAround){
+    //     ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
+    // }
+    this.bulletHandeler.render(ctx);
+  }
+  renderHurtFlash(ctx, img, x, y, flashColor) {
+    this.offscreenCanvas.width = img.width;
+    this.offscreenCanvas.height = img.height;
+    this.offscreenCtx.clearRect(0, 0, img.width, img.height);
+    this.offscreenCtx.drawImage(img, 0, 0);
+
+    this.offscreenCtx.globalCompositeOperation = "source-in";
+    this.offscreenCtx.fillStyle = flashColor;
+    this.offscreenCtx.fillRect(0, 0, img.width, img.height);
+    ctx.drawImage(this.offscreenCanvas, x, y);
+  }
 }
 class Character extends PhysicsRect {
-    constructor(game,x,y,w,h){
-        super(x,y,w,h);
-        this.game = game;
-        this.xVelocity = 0;
-        this.yVelocity = 0;
-        this.init();
-    }
-    init(){
-        //special effects
-        this.offscreenCanvas = document.createElement("canvas");
-        this.offscreenCtx = this.offscreenCanvas.getContext("2d");
-        this.flashColor = "red";
-        
-        //visuals
-        this.img = null;
-        this.currentAnimState = null;
-        this.newAnimState = null;
-        this.animationPlayer = new AnimationPlayer();
-        this.flip = false;
-        //physics ddependencies
-        this.tileCollisionHandeler = new TileCollisionHandeler(this,32,32);
-        this.direction = 0;
-    }
-    applyGravity(dt){
-        this.yVelocity += this.game.gravity*dt;
-        this.y = this.y + this.yVelocity*dt;
-    }
-    render(ctx){
-        this.img = this.animationPlayer.getCurrentFrame();
-        const drawX = this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX;
-        const drawY = this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY;
-        if(this.img!=null){
-            if(this.takingDamage){
-                if(this.flip){
-                    ctx.save();
-                    ctx.translate(drawX + this.img.width, drawY);
-                    ctx.scale(-1, 1);
-                    this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
-                    ctx.restore();
-                }else{
-                    this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
-                }
-            }
-            else if (this.flip) {
-                ctx.save();
-                ctx.translate(drawX + this.img.width, drawY);
-                ctx.scale(-1, 1);
-                ctx.drawImage(this.img, 0, 0);
-                ctx.restore();
-            } else {
-                ctx.drawImage(this.img, drawX, drawY);
-            }
-            //Actual Physical debug rect
-            ctx.strokeStyle = "cyan";
-            ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
-            //Image debug rect
-            // ctx.strokeStyle = "red";
-            // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
-        }else{
-            ctx.fillStyle = "cyan";
-            ctx.fillRect(this.x,this.y,this.w,this.h);
-        }
-    }
-    renderHurtFlash(ctx, img, x, y, flashColor){
-        this.offscreenCanvas.width = img.width;
-        this.offscreenCanvas.height = img.height;
-        this.offscreenCtx.clearRect(0, 0, img.width, img.height);
-        this.offscreenCtx.drawImage(img,0, 0);
+  constructor(game, x, y, w, h) {
+    super(x, y, w, h);
+    this.game = game;
+    this.xVelocity = 0;
+    this.yVelocity = 0;
+    this.init();
+  }
+  init() {
+    //special effects
+    this.offscreenCanvas = document.createElement("canvas");
+    this.offscreenCtx = this.offscreenCanvas.getContext("2d");
+    this.flashColor = "red";
 
-        this.offscreenCtx.globalCompositeOperation = "source-in";
-        this.offscreenCtx.fillStyle = flashColor;
-        this.offscreenCtx.fillRect(0, 0, img.width, img.height);
-        ctx.drawImage(this.offscreenCanvas, x, y);
+    //visuals
+    this.img = null;
+    this.currentAnimState = null;
+    this.newAnimState = null;
+    this.animationPlayer = new AnimationPlayer();
+    this.flip = false;
+    //physics ddependencies
+    this.tileCollisionHandeler = new TileCollisionHandeler(this, 32, 32);
+    this.direction = 0;
+  }
+  applyGravity(dt) {
+    this.yVelocity += this.game.gravity * dt;
+    this.y = this.y + this.yVelocity * dt;
+  }
+  render(ctx) {
+    this.img = this.animationPlayer.getCurrentFrame();
+    const drawX =
+      this.x +
+      this.animationPlayer.animation.xOffset +
+      this.game.camera.camOffsetX;
+    const drawY =
+      this.y +
+      this.animationPlayer.animation.yOffset +
+      this.game.camera.camOffsetY;
+    if (this.img != null) {
+      if (this.takingDamage) {
+        if (this.flip) {
+          ctx.save();
+          ctx.translate(drawX + this.img.width, drawY);
+          ctx.scale(-1, 1);
+          this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
+          ctx.restore();
+        } else {
+          this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
+        }
+      } else if (this.flip) {
+        ctx.save();
+        ctx.translate(drawX + this.img.width, drawY);
+        ctx.scale(-1, 1);
+        ctx.drawImage(this.img, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.drawImage(this.img, drawX, drawY);
+      }
+      //Actual Physical debug rect
+      ctx.strokeStyle = "cyan";
+      ctx.strokeRect(
+        this.x + this.game.camera.camOffsetX,
+        this.y + this.game.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
+      //Image debug rect
+      // ctx.strokeStyle = "red";
+      // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
+    } else {
+      ctx.fillStyle = "cyan";
+      ctx.fillRect(this.x, this.y, this.w, this.h);
     }
+  }
+  renderHurtFlash(ctx, img, x, y, flashColor) {
+    this.offscreenCanvas.width = img.width;
+    this.offscreenCanvas.height = img.height;
+    this.offscreenCtx.clearRect(0, 0, img.width, img.height);
+    this.offscreenCtx.drawImage(img, 0, 0);
+
+    this.offscreenCtx.globalCompositeOperation = "source-in";
+    this.offscreenCtx.fillStyle = flashColor;
+    this.offscreenCtx.fillRect(0, 0, img.width, img.height);
+    ctx.drawImage(this.offscreenCanvas, x, y);
+  }
 }
 
 const CharacterAnimState = {
-    ROBBER_IDLE : "ROBBER_IDLE",
-    ROBBER_RUN : "ROBBER_RUN",
-    ROBBER_FIRE : "ROBBER_FIRE",
-    ROBBER_DEATH : "ROBBER_DEATH"
+  ROBBER_IDLE: "ROBBER_IDLE",
+  ROBBER_RUN: "ROBBER_RUN",
+  ROBBER_FIRE: "ROBBER_FIRE",
+  ROBBER_DEATH: "ROBBER_DEATH",
 };
 class Robber extends Character {
-    constructor(game,x,y,w,h){
-        super(game,x,y,w,h);
-        this.currentAnimState = CharacterAnimState.ROBBER_IDLE;
-        this.animationPlayer.animation = this.game.assets.robberIdle;
-        this.xVelocity = 47 * 2.1;
-        this.direction = 1;
-        this.isMoving = false;
-        this.checkGridX = 0;
-        this.checkGridY = 0;
-        this.onAir = false;
-        this.entityType = EntityType.ROBBER;
-        //timers
-        this.movingTimer = 0;
-        this.isIdle = false;
-        this.idleTimer = 5;
+  constructor(game, x, y, w, h) {
+    super(game, x, y, w, h);
+    this.currentAnimState = CharacterAnimState.ROBBER_IDLE;
+    this.animationPlayer.animation = this.game.assets.robberIdle;
+    this.xVelocity = 47 * 2.1;
+    this.direction = 1;
+    this.isMoving = false;
+    this.checkGridX = 0;
+    this.checkGridY = 0;
+    this.onAir = false;
+    this.entityType = EntityType.ROBBER;
+    //timers
+    this.movingTimer = 0;
+    this.isIdle = false;
+    this.idleTimer = 5;
 
-        //attack dependencies
-        this.playerDetectableRadius = 12; //8 grid block
-        let detectW = this.game.tileMap.tileW * this.playerDetectableRadius;
-        this.detectRect = new Rect(this.x,this.y,detectW,this.h)
-        this.playerDetected = false;
-        this.isPatrolling = true;
-        this.patrollResetTimer = 0;
+    //attack dependencies
+    this.playerDetectableRadius = 16; //14 grid block
+    let detectW = this.game.tileMap.tileW * this.playerDetectableRadius;
+    this.detectRect = new Rect(this.x, this.y, detectW, this.h);
+    this.playerDetected = false;
+    this.isPatrolling = true;
+    this.patrollResetTimer = 0;
+    this.isFiring = false;
+    this.firingCooldownTimer = 0;
+    this.firingAnimTimer = 0;
+    this.fireHandeled = false;
+
+    this.bulletHandeler = new BulletHandeler(this);
+    this.maxBullets = 4;
+    this.bulletsInMag = this.maxBullets;
+    this.runningToReload = false;
+    this.runningToReloadTimer = 0;
+
+    this.takingDamage = false;
+    this.takingDamageTimer = 0;
+
+    this.flashColorSwapTime = 0.05;
+    this.flashColorSwapTimer = this.flashColorSwapTime; //secs
+  }
+  update(dt) {
+    //horizontal movement
+    this.x += this.xVelocity * this.direction * dt;
+
+    this.onAir = this.yVelocity != 0 ? true : false;
+    this.checkGridX = Math.floor(this.x / this.game.tileMap.tileW);
+    this.checkGridX += this.flip ? 1 : -1;
+    this.checkGridY = Math.ceil(this.bottom() / this.game.tileMap.tileH);
+    if (!this.onAir) {
+      if (
+        !this.game.tileMap.checkForPhysicsTile(this.checkGridX, this.checkGridY)
+      ) {
+        this.flip = !this.flip;
+        this.direction = this.flip ? 1 : -1;
+      }
+    }
+    this.patrollResetTimer = Math.max(this.patrollResetTimer - dt, 0);
+    if (this.isPatrolling && this.patrollResetTimer <= 0) {
+      if (this.isIdle) {
+        this.direction = 0;
+        this.idleTimer -= dt;
+        if (this.idleTimer <= 0) {
+          this.isIdle = false;
+          this.movingTimer = 2;
+        }
+      } else {
+        this.direction = this.flip ? 1 : -1;
+        this.movingTimer -= dt;
+        if (this.movingTimer <= 0) {
+          this.isIdle = true;
+          this.idleTimer = 5;
+        }
+      }
+    }
+
+    this.updateGridPos();
+    //vertical movement
+    this.applyGravity(dt);
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.tileCollisionHandeler.resolveVerticalCollision();
+    this.updateGridPos();
+
+    this.detectRect.x = this.x - this.detectRect.w / 2;
+    this.detectRect.y = this.y;
+
+    //Shooting logic
+    if (this.game.player.intersects(this.detectRect)) {
+      this.playerDetected = true;
+      this.isPatrolling = false;
+    } else {
+      if (this.playerDetected) {
+        this.patrollResetTimer = 1;
+      }
+      this.playerDetected = false;
+      this.isPatrolling = true;
+    }
+
+    if (this.fireHandeled) {
+      this.firingCooldownTimer -= dt;
+      this.firingAnimTimer -= dt;
+      if (this.firingAnimTimer <= 0) {
         this.isFiring = false;
-        this.firingCooldownTimer = 0;
-        this.firingAnimTimer = 0;
+      }
+      if (this.firingCooldownTimer <= 0) {
         this.fireHandeled = false;
+        if (this.runningToReload) {
+          this.flip = !this.flip;
+          this.direction = this.flip ? 1 : -1;
+        }
+      }
+    }
+    if (this.playerDetected && !this.runningToReload) {
+      this.direction = 0;
+      this.flip =
+        this.centerX() - this.game.player.centerX() <= 0 ? true : false;
+      if (!this.fireHandeled && !this.runningToReload) {
+        this.fireHandeled = true;
+        this.isFiring = true;
+        this.firingCooldownTimer =
+          this.game.assets.robberFire.animCompletionTime * 3;
+        this.firingAnimTimer = this.game.assets.robberFire.animCompletionTime;
+        this.bulletHandeler.addBullet();
+        this.bulletsInMag -= 1;
+        if (this.bulletsInMag <= 0) {
+          this.runningToReload = true;
+          this.runningToReloadTimer = 4;
+        }
+      }
+    }
 
-        this.bulletHandeler = new BulletHandeler(this);
-        this.maxBullets = 4;
-        this.bulletsInMag = this.maxBullets;
+    if (this.runningToReload) {
+      this.runningToReloadTimer -= dt;
+      if (this.runningToReloadTimer <= 0) {
         this.runningToReload = false;
-        this.runningToReloadTimer = 0;
+        this.bulletsInMag = this.maxBullets;
+      }
+    }
+    this.isMoving = this.direction != 0 ? true : false;
+    this.bulletHandeler.update(dt);
 
+    //taking damage logic
+    if (this.takingDamage) {
+      this.takingDamageTimer -= dt;
+      if (this.takingDamageTimer <= 0) {
         this.takingDamage = false;
-        this.takingDamageTimer = 0;
-        
-        this.flashColorSwapTime = 0.05;
-        this.flashColorSwapTimer = this.flashColorSwapTime; //secs
-        
+      }
+      this.flashColorSwapTimer -= dt;
+      if (this.flashColorSwapTimer <= 0) {
+        this.flashColorSwapTimer = this.flashColorSwapTime;
+        if (this.flashColor == "red") {
+          this.flashColor = "white";
+        } else {
+          this.flashColor = "red";
+        }
+      }
     }
-    update(dt){
-        //horizontal movement
-        this.x += this.xVelocity*this.direction*dt;
-
-        this.onAir = this.yVelocity!=0?true:false;
-        this.checkGridX = Math.floor(this.x/this.game.tileMap.tileW);
-        this.checkGridX += this.flip?1:-1;
-        this.checkGridY = Math.ceil(this.bottom()/this.game.tileMap.tileH);
-        if(!this.onAir){
-            if(!this.game.tileMap.checkForPhysicsTile(this.checkGridX,  this.checkGridY)){
-                this.flip = !this.flip;
-                this.direction = this.flip?1:-1;
-            }
-        }
-        this.patrollResetTimer = Math.max(this.patrollResetTimer-dt,0);
-        if(this.isPatrolling  && this.patrollResetTimer<=0){
-            if(this.isIdle){
-                this.direction = 0;
-                this.idleTimer-=dt;
-                if(this.idleTimer<=0){
-                    this.isIdle = false;
-                    this.movingTimer = 2;
-                }
-            }else{
-                this.direction = this.flip?1:-1;
-                this.movingTimer -= dt;
-                if(this.movingTimer<=0){
-                    this.isIdle = true;
-                    this.idleTimer = 5;
-                }
-            }
-        }
-        
-        this.updateGridPos();
-        //vertical movement
-        this.applyGravity(dt);
-        this.tileCollisionHandeler.updatePhysicsTilesAround();
-        this.tileCollisionHandeler.resolveVerticalCollision();
-        this.updateGridPos();
-
-        this.detectRect.x = this.x - this.detectRect.w/2;
-        this.detectRect.y = this.y;
-
-        //Shooting logic
-        if(this.game.player.intersects(this.detectRect)){
-            this.playerDetected = true;
-            this.isPatrolling = false;
-        }else{
-            if(this.playerDetected){
-                this.patrollResetTimer = 1;
-            }
-            this.playerDetected = false;
-            this.isPatrolling = true;
-        }
-
-        if(this.fireHandeled){
-            this.firingCooldownTimer-=dt;
-            this.firingAnimTimer -= dt;
-            if(this.firingAnimTimer<=0){
-                this.isFiring = false;
-            }
-            if(this.firingCooldownTimer<=0){
-                this.fireHandeled=false;
-                if(this.runningToReload){
-                    this.flip = !this.flip;
-                    this.direction = this.flip?1:-1;
-                }
-            }
-        }
-        if(this.playerDetected && !this.runningToReload){
-            this.direction = 0;
-            this.flip = this.centerX() - this.game.player.centerX()<=0?true:false;
-            if(!this.fireHandeled && !this.runningToReload){
-                this.fireHandeled = true;
-                this.isFiring = true;
-                this.firingCooldownTimer = this.game.assets.robberFire.animCompletionTime *3;
-                this.firingAnimTimer = this.game.assets.robberFire.animCompletionTime;
-                this.bulletHandeler.addBullet();
-                this.bulletsInMag -= 1;
-                if(this.bulletsInMag<=0){
-                    this.runningToReload = true;
-                    this.runningToReloadTimer = 4;
-                }
-            }
-        }
-
-        if(this.runningToReload){
-            this.runningToReloadTimer-=dt;
-            if(this.runningToReloadTimer<=0){
-                this.runningToReload=false;
-                this.bulletsInMag = this.maxBullets;
-            }
-        }
-        this.isMoving = this.direction!=0?true:false;
-        this.bulletHandeler.update(dt);
-
-        //taking damage logic
-        if(this.takingDamage){
-            this.takingDamageTimer-=dt;
-            if(this.takingDamageTimer<=0){
-                this.takingDamage=false;
-            }
-            this.flashColorSwapTimer-=dt;
-            if(this.flashColorSwapTimer<=0){
-                this.flashColorSwapTimer = this.flashColorSwapTime;
-                if(this.flashColor=="red"){
-                    this.flashColor="white";
-                }else{
-                    this.flashColor = "red";
-                }
-            }
-        }
-        this.updateAnimationState();
-        this.animationPlayer.update(dt);
+    this.updateAnimationState();
+    this.animationPlayer.update(dt);
+  }
+  updateAnimationState() {
+    if (this.isFiring) {
+      this.newAnimState = CharacterAnimState.ROBBER_FIRE;
+    } else if (this.isMoving) {
+      this.newAnimState = CharacterAnimState.ROBBER_RUN;
+    } else {
+      this.newAnimState = CharacterAnimState.ROBBER_IDLE;
     }
-    updateAnimationState(){
-        if(this.isFiring){
-            this.newAnimState = CharacterAnimState.ROBBER_FIRE;
-        }
-        else if(this.isMoving){
-            this.newAnimState = CharacterAnimState.ROBBER_RUN;
-        }else{
-            this.newAnimState = CharacterAnimState.ROBBER_IDLE;
-        }
 
-        if(this.newAnimState!=this.currentAnimState){
-            this.currentAnimState = this.newAnimState;
-            switch(this.currentAnimState){
-                case(CharacterAnimState.ROBBER_RUN):
-                    this.animationPlayer.setAnimation(this.game.assets.robberRun);
-                    break;
-                case(CharacterAnimState.ROBBER_IDLE):
-                    this.animationPlayer.setAnimation(this.game.assets.robberIdle);
-                    break;
-                case(CharacterAnimState.ROBBER_FIRE):
-                    this.animationPlayer.setAnimation(this.game.assets.robberFire);
-                    break;
-                default:
-                    break;  
-            }
-        }
+    if (this.newAnimState != this.currentAnimState) {
+      this.currentAnimState = this.newAnimState;
+      switch (this.currentAnimState) {
+        case CharacterAnimState.ROBBER_RUN:
+          this.animationPlayer.setAnimation(this.game.assets.robberRun);
+          break;
+        case CharacterAnimState.ROBBER_IDLE:
+          this.animationPlayer.setAnimation(this.game.assets.robberIdle);
+          break;
+        case CharacterAnimState.ROBBER_FIRE:
+          this.animationPlayer.setAnimation(this.game.assets.robberFire);
+          break;
+        default:
+          break;
+      }
     }
-    updateGridPos(){
-        this.gridX = Math.floor(this.centerX()/this.game.tileMap.tileW);
-        this.gridy = Math.floor(this.centerY()/this.game.tileMap.tileH);
-    }
-    takeDamage(){
-        this.takingDamage = true;
-        this.takingDamageTimer = 0.2;
-    }
-    render(ctx){
-        super.render(ctx);
-        ctx.fillStyle = "yellow";
-        ctx.fillRect(this.checkGridX*32 + this.game.camera.camOffsetX,this.checkGridY*32 + this.game.camera.camOffsetY,32,32);
-        ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
-        //detect rect
-        ctx.strokeStyle = "red";
-        ctx.strokeRect(this.detectRect.x + this.game.camera.camOffsetX,this.detectRect.y + this.game.camera.camOffsetY,this.detectRect.w,this.detectRect.h);
+  }
+  updateGridPos() {
+    this.gridX = Math.floor(this.centerX() / this.game.tileMap.tileW);
+    this.gridy = Math.floor(this.centerY() / this.game.tileMap.tileH);
+  }
+  takeDamage() {
+    this.takingDamage = true;
+    this.takingDamageTimer = 0.2;
+  }
+  render(ctx) {
+    super.render(ctx);
+    ctx.fillStyle = "yellow";
+    ctx.fillRect(
+      this.checkGridX * 32 + this.game.camera.camOffsetX,
+      this.checkGridY * 32 + this.game.camera.camOffsetY,
+      32,
+      32,
+    );
+    ctx.strokeRect(
+      this.x + this.game.camera.camOffsetX,
+      this.y + this.game.camera.camOffsetY,
+      this.w,
+      this.h,
+    );
+    //detect rect
+    ctx.strokeStyle = "red";
+    ctx.strokeRect(
+      this.detectRect.x + this.game.camera.camOffsetX,
+      this.detectRect.y + this.game.camera.camOffsetY,
+      this.detectRect.w,
+      this.detectRect.h,
+    );
 
-        this.bulletHandeler.render(ctx);
-    }
+    this.bulletHandeler.render(ctx);
+  }
 }
 
 class GameInputs {
-    constructor(){
-        this.leftPressed = false;
-        this.rightPressed = false;
-        this.jumpPressed = false;
-        this.jumpHandeled = false;
-        this.enterPressed = false;
-        this.shiftPressed = false;
-        this.attackPressed = false;
-        this.aimPressed = false;
-    }
+  constructor() {
+    this.leftPressed = false;
+    this.rightPressed = false;
+    this.jumpPressed = false;
+    this.jumpHandeled = false;
+    this.enterPressed = false;
+    this.shiftPressed = false;
+    this.attackPressed = false;
+    this.aimPressed = false;
+  }
 }
 
-class Camera extends Rect{
-    constructor(x,y,w,h,game,relativeEntity){
-        super(x,y,w,h);
-        this.game = game;
-        this.entity = relativeEntity; // entity where thr camera focuses
-        this.camOffsetX = 0;
-        this.camOffsetY = 0;
-        this.xSmoothnessFactor = 4;
-        this.ySmoothnessFactor = 4;
-    }
-    update(dt){
-        this.x += (this.entity.centerX() - this.x) *dt*this.xSmoothnessFactor;
-        this.y += (this.entity.centerY() - 30 - this.y) *dt*this.ySmoothnessFactor;
-        this.camOffsetX = this.game.vCanvasW/2 - this.x;
-        this.camOffsetY = this.game.vCanvasH/2 - this.y;
+class Camera extends Rect {
+  constructor(x, y, w, h, game, relativeEntity) {
+    super(x, y, w, h);
+    this.game = game;
+    this.entity = relativeEntity; // entity where thr camera focuses
+    this.camOffsetX = 0;
+    this.camOffsetY = 0;
+    this.xSmoothnessFactor = 4;
+    this.ySmoothnessFactor = 4;
+  }
+  update(dt) {
+    this.x += (this.entity.centerX() - this.x) * dt * this.xSmoothnessFactor;
+    this.y +=
+      (this.entity.centerY() - 30 - this.y) * dt * this.ySmoothnessFactor;
+    this.camOffsetX = this.game.vCanvasW / 2 - this.x;
+    this.camOffsetY = this.game.vCanvasH / 2 - this.y;
 
-        this.game.gameRenderingRect.x = this.x - this.game.gameRenderingRect.w/2;
-        this.game.gameRenderingRect.y = this.y - this.game.gameRenderingRect.h/2;
+    this.game.gameRenderingRect.x = this.x - this.game.gameRenderingRect.w / 2;
+    this.game.gameRenderingRect.y = this.y - this.game.gameRenderingRect.h / 2;
+  }
+  render(ctx) {
+    // ctx.fillStyle = "green";
+    // ctx.fillRect(this.x - this.w/2, this.y - this.h/2,this.w,this.h);
+  }
+}
+
+class Wheel {
+  constructor(game, x, y, rad) {
+    this.game = game;
+    this.x = x;
+    this.y = y;
+    this.rad = rad;
+    this.angularVelocity = 0; //Radian per sec
+    this.friction = -20; //Radian per sec
+    this.angle = 0;
+    this.spinVelocity = 55;
+    this.partition = 6;
+    this.unitPartAngle = (Math.PI * 2) / this.partition;
+    this.colorIndex = 0;
+  }
+  update(dt) {
+    this.angle += this.angularVelocity * dt;
+    this.angularVelocity = Math.max(
+      this.angularVelocity + this.friction * dt,
+      0,
+    );
+    if (this.game.globalInputs.attackPressed) {
+      this.spin();
     }
-    render(ctx){
-        // ctx.fillStyle = "green";
-        // ctx.fillRect(this.x - this.w/2, this.y - this.h/2,this.w,this.h);
+  }
+  spin() {
+    this.angularVelocity = this.spinVelocity;
+  }
+  render(ctx) {
+    ctx.save();
+    ctx.translate(
+      this.x + this.game.camera.camOffsetX,
+      this.y + this.game.camera.camOffsetY,
+    );
+    ctx.rotate(this.angle);
+
+    ctx.strokeStyle = "black";
+
+    for (let i = 0; i < this.partition; i++) {
+      const angle = i * this.unitPartAngle;
+
+      const colorIndex = i % 3;
+
+      if (colorIndex === 0) {
+        ctx.fillStyle = "red";
+      } else if (colorIndex === 1) {
+        ctx.fillStyle = "green";
+      } else {
+        ctx.fillStyle = "blue";
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, this.rad, angle, angle + this.unitPartAngle);
+      ctx.closePath();
+
+      ctx.fill();
+      ctx.stroke();
     }
+    ctx.restore();
+  }
 }
 class Game {
-    constructor(){
-        this.canvas = document.getElementById("game");
-        this.canvasW = 1080;
-        this.canvasH = 720;
-        this.canvas.width = this.canvasW;
-        this.canvas.height = this.canvasH;
-        this.ctx = this.canvas.getContext("2d");
-        this.ctx.imageSmoothingEnabled = false;
+  constructor() {
+    this.canvas = document.getElementById("game");
+    this.canvasW = 1080;
+    this.canvasH = 720;
+    this.canvas.width = this.canvasW;
+    this.canvas.height = this.canvasH;
+    this.ctx = this.canvas.getContext("2d");
+    this.ctx.imageSmoothingEnabled = false;
 
-        this.vCanvas = document.createElement("canvas");
-        this.vCanvasW = this.canvasW/2;
-        this.vCanvasH = this.canvasH/2;
-        this.vCanvas.width = this.vCanvasW;
-        this.vCanvas.height = this.vCanvasH;
-        this.vCtx = this.vCanvas.getContext("2d");
-        this.vCtx.imageSmoothingEnabled = false;
-        this.init();
-    }
-    async init(){
-        //game inputs
-        this.gameRenderingRect = new Rect(-50,-50,this.vCanvasW + 100,this.vCanvasH + 100);
-        this.globalInputs = new GameInputs();
-        this.bindInputs();
-        this.playerW = 16;
-        this.playerH = 42;
-        await this.loadAssets();
+    this.vCanvas = document.createElement("canvas");
+    this.vCanvasW = this.canvasW / 2;
+    this.vCanvasH = this.canvasH / 2;
+    this.vCanvas.width = this.vCanvasW;
+    this.vCanvas.height = this.vCanvasH;
+    this.vCtx = this.vCanvas.getContext("2d");
+    this.vCtx.imageSmoothingEnabled = false;
+    this.init();
+  }
+  async init() {
+    //game inputs
+    this.gameRenderingRect = new Rect(
+      -50,
+      -50,
+      this.vCanvasW + 100,
+      this.vCanvasH + 100,
+    );
+    this.globalInputs = new GameInputs();
+    this.bindInputs();
+    this.playerW = 16;
+    this.playerH = 42;
+    await this.loadAssets();
 
-        //environment dependencies
-        this.gravity = 600; //px per sec square
-        //entities
-        this.player = new Player(this,20,20,this.playerW,this.playerH);
-        this.camera = new Camera(this.player.centerX(),this.player.centerY(),10,10,this,this.player);
-        this.tileMap = new TileMap(32,32,this.camera);
-        this.robber = new Robber(this,70,20,this.playerW,this.playerH);
+    //environment dependencies
+    this.gravity = 600; //px per sec square
+    //entities
+    this.player = new Player(this, 20, 20, this.playerW, this.playerH);
+    this.camera = new Camera(
+      this.player.centerX(),
+      this.player.centerY(),
+      10,
+      10,
+      this,
+      this.player,
+    );
+    this.tileMap = new TileMap(32, 32, this.camera);
+    this.robber = new Robber(this, 70, 20, this.playerW, this.playerH);
 
+    //wheel
+    this.wheel = new Wheel(
+      this,
+      this.vCanvasW / 2,
+      this.vCanvasH / 2,
+      this.vCanvasW * 0.2,
+    );
 
+    //main loop dependenciesa
+    this.nowMs = performance.now();
+    this.prevMs = this.nowMs;
+    this.deltaTime = 0;
+    this.gameloop();
+  }
+  bindInputs() {
+    window.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+    });
+    window.addEventListener("mousedown", (e) => {
+      if (e.button === 0) {
+        this.globalInputs.attackPressed = true;
+      } else if (e.button === 2) {
+        this.globalInputs.aimPressed = true;
+      }
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 0) {
+        this.globalInputs.attackPressed = false;
+        this.player.attackHandeled = false;
+      } else if (e.button === 2) {
+        this.globalInputs.aimPressed = false;
+      }
+    });
+    window.addEventListener("keydown", (e) => {
+      switch (e.code) {
+        case "KeyA":
+          this.globalInputs.leftPressed = true;
+          break;
+        case "KeyD":
+          this.globalInputs.rightPressed = true;
+          break;
+        case "KeyW":
+          this.globalInputs.jumpPressed = true;
+          break;
 
-        //main loop dependencies
-        this.nowMs = performance.now();
-        this.prevMs = this.nowMs;
-        this.deltaTime = 0;
-        this.gameloop();
-    }
-    bindInputs(){
-        window.addEventListener("contextmenu", (e) => {e.preventDefault();});
-        window.addEventListener("mousedown", (e) => {
-            if(e.button===0){
-                this.globalInputs.attackPressed = true;
-            }else if(e.button ===2){
-                this.globalInputs.aimPressed = true;
-            }
-        });
-        window.addEventListener("mouseup", (e) => {
-            if(e.button===0){
-                this.globalInputs.attackPressed = false;
-                this.player.attackHandeled = false;
-            }else if(e.button ===2){
-                this.globalInputs.aimPressed = false;
-            }
-        });
-        window.addEventListener("keydown", (e) => {
-        switch(e.code){
-            case "KeyA":
-                this.globalInputs.leftPressed = true;
-                break;
-            case "KeyD":
-                this.globalInputs.rightPressed = true;
-                break;
-            case "KeyW":
-                this.globalInputs.jumpPressed = true;
-                break;
+        case "Enter":
+          this.globalInputs.enterPressed = true;
+          break;
+        case "ShiftLeft":
+        case "ShiftRight":
+          this.globalInputs.shiftPressed = true;
+          break;
+      }
+    });
 
-            case "Enter":
-                this.globalInputs.enterPressed = true;
-                break;
-            case "ShiftLeft":
-            case "ShiftRight":
-                this.globalInputs.shiftPressed = true;
-                break;
-            } 
-        });
+    window.addEventListener("keyup", (e) => {
+      switch (e.code) {
+        case "KeyA":
+          this.globalInputs.leftPressed = false;
+          break;
+        case "KeyD":
+          this.globalInputs.rightPressed = false;
+          break;
+        case "KeyW":
+          this.globalInputs.jumpPressed = false;
+          this.globalInputs.jumpHandeled = false;
+          break;
 
-        window.addEventListener("keyup", (e) => {
-        switch(e.code){
-            case "KeyA":
-                this.globalInputs.leftPressed = false;
-                break;
-            case "KeyD":
-                this.globalInputs.rightPressed = false;
-                break;
-            case "KeyW":
-                this.globalInputs.jumpPressed = false;
-                this.globalInputs.jumpHandeled = false;
-                break;
-
-            case "Enter":
-                this.globalInputs.enterPressed = false;
-                break;
-            case "ShiftLeft":
-            case "ShiftRight":
-                this.globalInputs.shiftPressed = false;
-                break;
-            }
-        });
-    }
-    async loadAssets(){
+        case "Enter":
+          this.globalInputs.enterPressed = false;
+          break;
+        case "ShiftLeft":
+        case "ShiftRight":
+          this.globalInputs.shiftPressed = false;
+          break;
+      }
+    });
+  }
+  async loadAssets() {
     this.loader = new GameImage();
     const [
-        playerIdle, playerWalk, playerJump, playerFall, playerRun,
-        playerAimIdle, playerFire, playerWalkAim, playerJumpAim, playerRunAim,
-        playerFallAim, playerWalkFire, playerJumpFire, playerFallFire, playerRunFire,
-        playerHurt,
-        bullet,
-        robberIdle, robberRun, robberFire, robberDeath
+      playerIdle,
+      playerWalk,
+      playerJump,
+      playerFall,
+      playerRun,
+      playerAimIdle,
+      playerFire,
+      playerWalkAim,
+      playerJumpAim,
+      playerRunAim,
+      playerFallAim,
+      playerWalkFire,
+      playerJumpFire,
+      playerFallFire,
+      playerRunFire,
+      playerHurt,
+      bullet,
+      robberIdle,
+      robberRun,
+      robberFire,
+      robberDeath,
     ] = await Promise.all([
-        this.loader.loadImagesFromFolder("assets/male/idle/", 5),
-        this.loader.loadImagesFromFolder("assets/male/walk/", 8),
-        this.loader.loadImagesFromFolder("assets/male/jump/", 5),
-        this.loader.loadImagesFromFolder("assets/male/fall/", 5),
-        this.loader.loadImagesFromFolder("assets/male/run/", 8),
-        this.loader.loadImagesFromFolder("assets/male/aimIdle/", 5),
-        this.loader.loadImagesFromFolder("assets/male/fire/", 5),
-        this.loader.loadImagesFromFolder("assets/male/walkAim/", 8),
-        this.loader.loadImagesFromFolder("assets/male/jumpAim/", 5),
-        this.loader.loadImagesFromFolder("assets/male/runAim/", 8),
-        this.loader.loadImagesFromFolder("assets/male/fallAim/", 5),
-        this.loader.loadImagesFromFolder("assets/male/walkFire/", 8),
-        this.loader.loadImagesFromFolder("assets/male/jumpFire/", 5),
-        this.loader.loadImagesFromFolder("assets/male/fallFire/", 5),
-        this.loader.loadImagesFromFolder("assets/male/runFire/", 8),
-        this.loader.loadImagesFromFolder("assets/male/hurt/", 3),
-        this.loader.loadImagesFromFolder("assets/bullet/", 5),
-        this.loader.loadImagesFromFolder("assets/robber/idle/", 5),
-        this.loader.loadImagesFromFolder("assets/robber/run/", 8),
-        this.loader.loadImagesFromFolder("assets/robber/fire/", 5),
-        this.loader.loadImagesFromFolder("assets/robber/death/", 8),
+      this.loader.loadImagesFromFolder("assets/male/idle/", 5),
+      this.loader.loadImagesFromFolder("assets/male/walk/", 8),
+      this.loader.loadImagesFromFolder("assets/male/jump/", 5),
+      this.loader.loadImagesFromFolder("assets/male/fall/", 5),
+      this.loader.loadImagesFromFolder("assets/male/run/", 8),
+      this.loader.loadImagesFromFolder("assets/male/aimIdle/", 5),
+      this.loader.loadImagesFromFolder("assets/male/fire/", 5),
+      this.loader.loadImagesFromFolder("assets/male/walkAim/", 8),
+      this.loader.loadImagesFromFolder("assets/male/jumpAim/", 5),
+      this.loader.loadImagesFromFolder("assets/male/runAim/", 8),
+      this.loader.loadImagesFromFolder("assets/male/fallAim/", 5),
+      this.loader.loadImagesFromFolder("assets/male/walkFire/", 8),
+      this.loader.loadImagesFromFolder("assets/male/jumpFire/", 5),
+      this.loader.loadImagesFromFolder("assets/male/fallFire/", 5),
+      this.loader.loadImagesFromFolder("assets/male/runFire/", 8),
+      this.loader.loadImagesFromFolder("assets/male/hurt/", 3),
+      this.loader.loadImagesFromFolder("assets/bullet/", 5),
+      this.loader.loadImagesFromFolder("assets/robber/idle/", 5),
+      this.loader.loadImagesFromFolder("assets/robber/run/", 8),
+      this.loader.loadImagesFromFolder("assets/robber/fire/", 5),
+      this.loader.loadImagesFromFolder("assets/robber/death/", 8),
     ]);
     //images
     this.playerIdle = playerIdle;
@@ -1088,63 +1269,196 @@ class Game {
     this.robberDeath = robberDeath;
     //Animations
     this.assets = {
-        "playerIdle"    : new Animation(this.playerIdle,   0.5,  true,  this.playerW, this.playerH),
-        "playerWalk"    : new Animation(this.playerWalk,   0.65, true,  this.playerW, this.playerH),
-        "playerJump"    : new Animation(this.playerJump,   0.65, true,  this.playerW, this.playerH),
-        "playerFall"    : new Animation(this.playerFall,   0.65, true,  this.playerW, this.playerH),
-        "playerRun"     : new Animation(this.playerRun,    0.65, true,  this.playerW, this.playerH),
-        "playerAimIdle" : new Animation(this.playerAimIdle,0.5,  true,  this.playerW, this.playerH),
-        "playerWalkAim" : new Animation(this.playerWalkAim,0.65, true,  this.playerW, this.playerH),
-        "playerRunAim"  : new Animation(this.playerRunAim, 0.65, true,  this.playerW, this.playerH),
-        "playerJumpAim" : new Animation(this.playerJumpAim,0.65, true,  this.playerW, this.playerH),
-        "playerFallAim" : new Animation(this.playerFallAim,0.65, true,  this.playerW, this.playerH),
-        "playerFire"    : new Animation(this.playerFire,   0.5,  false, this.playerW, this.playerH),
-        "playerRunFire" : new Animation(this.playerRunFire,0.8,  false, this.playerW, this.playerH),
-        "playerWalkFire": new Animation(this.playerWalkFire,0.8, false, this.playerW, this.playerH),
-        "playerJumpFire": new Animation(this.playerJumpFire,0.65,false, this.playerW, this.playerH),
-        "playerFallFire": new Animation(this.playerFallFire,0.5, false, this.playerW, this.playerH),
-        "playerHurt": new Animation(this.playerHurt,0.3, false, this.playerW, this.playerH),
-        "bullet"        : new Animation(this.bullet, 0.5, true, this.bullet[0].width/2+10, this.bullet[0].height/2+2),
-        "robberIdle"    : new Animation(this.robberIdle,   0.5,  true,  this.playerW, this.playerH),
-        "robberRun"     : new Animation(this.robberRun,    0.7,  true,  this.playerW, this.playerH),
-        "robberFire"    : new Animation(this.robberFire,   0.5,  false, this.playerW, this.playerH),
-        "robberDeath"   : new Animation(this.robberDeath,  0.5,  false, this.playerW, this.playerH),
-    }
-}
-    gameloop(){
-        //delta time calculation
-        this.nowMs = performance.now();
-        this.deltaTime = (this.nowMs - this.prevMs) / 1000;
-        this.prevMs = this.nowMs;
+      playerIdle: new Animation(
+        this.playerIdle,
+        0.5,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerWalk: new Animation(
+        this.playerWalk,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerJump: new Animation(
+        this.playerJump,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerFall: new Animation(
+        this.playerFall,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerRun: new Animation(
+        this.playerRun,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerAimIdle: new Animation(
+        this.playerAimIdle,
+        0.5,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerWalkAim: new Animation(
+        this.playerWalkAim,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerRunAim: new Animation(
+        this.playerRunAim,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerJumpAim: new Animation(
+        this.playerJumpAim,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerFallAim: new Animation(
+        this.playerFallAim,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerFire: new Animation(
+        this.playerFire,
+        0.5,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      playerRunFire: new Animation(
+        this.playerRunFire,
+        0.8,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      playerWalkFire: new Animation(
+        this.playerWalkFire,
+        0.8,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      playerJumpFire: new Animation(
+        this.playerJumpFire,
+        0.65,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      playerFallFire: new Animation(
+        this.playerFallFire,
+        0.5,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      playerHurt: new Animation(
+        this.playerHurt,
+        0.3,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      bullet: new Animation(
+        this.bullet,
+        0.5,
+        true,
+        this.bullet[0].width / 2 + 10,
+        this.bullet[0].height / 2 + 2,
+      ),
+      robberIdle: new Animation(
+        this.robberIdle,
+        0.5,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      robberRun: new Animation(
+        this.robberRun,
+        0.7,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      robberFire: new Animation(
+        this.robberFire,
+        0.5,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      robberDeath: new Animation(
+        this.robberDeath,
+        0.5,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+    };
+  }
+  gameloop() {
+    //delta time calculation
+    this.nowMs = performance.now();
+    this.deltaTime = (this.nowMs - this.prevMs) / 1000;
+    this.prevMs = this.nowMs;
 
-        this.update(this.deltaTime);
-        this.render(this.vCtx);
+    this.update(this.deltaTime);
+    this.render(this.vCtx);
 
-        requestAnimationFrame(() => this.gameloop());
-    }
-    update(dt){
-        this.player.update(dt);
-        this.camera.update(dt);
+    requestAnimationFrame(() => this.gameloop());
+  }
+  update(dt) {
+    this.player.update(dt);
+    this.camera.update(dt);
 
-        this.robber.update(dt);
-    }
-    render(ctx){
-        ctx.clearRect(0,0,this.vCanvasW,this.vCanvasH);
-        ctx.fillStyle = "black";
-        ctx.fillRect(0,0,this.vCanvasW,this.vCanvasH);
-        ctx.strokeStyle = "white";
-        ctx.strokeRect(0+this.camera.camOffsetX,this.camera.camOffsetY,this.vCanvasW,this.vCanvasH);
-        this.player.render(ctx);
-        this.tileMap.render(ctx);
-        this.camera.render(ctx);
-        this.robber.render(ctx);
+    this.robber.update(dt);
+    this.wheel.update(dt);
+  }
+  render(ctx) {
+    ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, this.vCanvasW, this.vCanvasH);
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(
+      0 + this.camera.camOffsetX,
+      this.camera.camOffsetY,
+      this.vCanvasW,
+      this.vCanvasH,
+    );
+    this.player.render(ctx);
+    this.tileMap.render(ctx);
+    this.camera.render(ctx);
+    this.robber.render(ctx);
+    this.wheel.render(ctx);
 
-        //rendering vCtx into ctx
-        this.ctx.clearRect(0,0,250,250);
-        this.ctx.fillStyle = "grey";
-        this.ctx.fillRect(0,0,this.canvasW,this.canvasH);
-        this.ctx.drawImage(this.vCanvas,0,0,this.canvasW,this.canvasH);
-    }
+    //rendering vCtx into ctx
+    this.ctx.clearRect(0, 0, 250, 250);
+    this.ctx.fillStyle = "grey";
+    this.ctx.fillRect(0, 0, this.canvasW, this.canvasH);
+    this.ctx.drawImage(this.vCanvas, 0, 0, this.canvasW, this.canvasH);
+  }
 }
 
 const game = new Game();
