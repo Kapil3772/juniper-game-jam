@@ -61,7 +61,10 @@ class GameImage {
         return (await Promise.all(promises)).filter(Boolean);
     }
 }
-
+const EntityType = {
+    ROBBER : "ROBBER",
+    PLAYER : "PLAYER"
+}
 const PlayerAnimState = {
     IDLE : "IDLE",
     WALK : "WALK",
@@ -77,7 +80,8 @@ const PlayerAnimState = {
     WALK_FIRE : "WALK_FIRE",
     RUN_FIRE : "RUN_FIRE",
     JUMP_FIRE : "JUMP_FIRE",
-    FALL_FIRE : "FALL_FIRE"
+    FALL_FIRE : "FALL_FIRE",
+    HURT : "HURT"
 };
 
 class Tile extends PhysicsRect {
@@ -222,6 +226,7 @@ class Bullet extends PhysicsRect {
         this.bulletAnim = anim;
         this.bulletAnimPlayer = new AnimationPlayer();
         this.bulletAnimPlayer.animation = this.bulletAnim;
+        this.damageApplied = false;
     }
     update(dt){
         this.x += this.xVelocity * dt * this.direction;
@@ -246,10 +251,28 @@ class BulletHandeler {
     update(dt){
         for(const bullet of this.bullets){
             bullet.update(dt);
+            //bullet goes out of bound
             if(!bullet.intersects(this.entity.game.gameRenderingRect)){
-                let id = this.bullets.indexOf(bullet);
-                this.bullets.splice(id,1);
+                this.removeBullet(bullet);
             }
+            if(this.entity.entityType==EntityType.PLAYER){
+                if(bullet.intersects(this.entity.game.robber)){
+                    if(!bullet.damageApplied){
+                        bullet.damageApplied = true;
+                        this.entity.game.robber.takeDamage();
+                    }
+                    this.removeBullet(bullet);
+                }
+            }else if(this.entity.entityType==EntityType.ROBBER){
+                if(bullet.intersects(this.entity.game.player)){
+                    if(!bullet.damageApplied){
+                        bullet.damageApplied = true;
+                        this.entity.game.player.takeDamage();
+                    }
+                    this.removeBullet(bullet);
+                }
+            }
+            //bullet collides with Physics Rect
         }
     }
     render(ctx){
@@ -262,6 +285,10 @@ class BulletHandeler {
         const anim = this.entity.game.assets.bullet;
         this.bullets.push(new Bullet(this.entity,this.entity.centerX(),this.entity.centerY()-15,anim.imgs[0].width,anim.imgs[0].height/4,direction,anim));
     }
+    removeBullet(bullet){
+        let id = this.bullets.indexOf(bullet);
+        this.bullets.splice(id,1);
+    }
 }
 
 class Player extends PhysicsRect{
@@ -271,6 +298,7 @@ class Player extends PhysicsRect{
         this.init();
     }
     init(){
+        this.entityType = EntityType.PLAYER;
         this.direction = null;
         this.xVelocity = 47; //px per second
         this.yVelocity = 0; //px per second
@@ -285,6 +313,13 @@ class Player extends PhysicsRect{
         this.animationPlayer = new AnimationPlayer();
         this.animationPlayer.setAnimation(this.game.assets.playerIdle);
         this.flip = false;
+
+        //special effects
+        this.offscreenCanvas = document.createElement("canvas");
+        this.offscreenCtx = this.offscreenCanvas.getContext("2d");
+        this.flashColor = "red";
+        this.flashColorSwapTime = 0.05;
+        this.flashColorSwapTimer = this.flashColorSwapTime; //secs
 
         //inputs, states and timers
         this.isJumping = false;
@@ -304,6 +339,8 @@ class Player extends PhysicsRect{
 
         //attack dependencies
         this.bulletHandeler = new BulletHandeler(this);
+        this.takingDamage = false;
+        this.takingDamageTimer = 0;
     }
     update(dt){
         // horizontal movement
@@ -369,6 +406,23 @@ class Player extends PhysicsRect{
             }
         }
         this.bulletHandeler.update(dt);
+
+        if(this.takingDamage){
+            this.takingDamageTimer-=dt;
+            if(this.takingDamageTimer<=0){
+                this.takingDamage=false;
+            }
+            this.flashColorSwapTimer-=dt;
+            if(this.flashColorSwapTimer<=0){
+                this.flashColorSwapTimer = this.flashColorSwapTime;
+                if(this.flashColor=="red"){
+                    this.flashColor="white";
+                }else{
+                    this.flashColor = "red";
+                }
+            }
+        }
+
         this.updateAnimationState(dt);
 
         this.prevX = this.x;
@@ -376,7 +430,9 @@ class Player extends PhysicsRect{
     }
     updateAnimationState(dt){
         //change state
-        if(this.isJumping){
+        if(this.takingDamage){
+            this.newAnimState = PlayerAnimState.HURT;
+        }else if(this.isJumping){
             this.newAnimState = PlayerAnimState.JUMP;
             if(this.isAttacking){
                 if(this.currentAnimState==PlayerAnimState.WALK_FIRE || this.currentAnimState==PlayerAnimState.FIRE||this.currentAnimState==PlayerAnimState.RUN_FIRE){
@@ -481,7 +537,6 @@ class Player extends PhysicsRect{
                 case(PlayerAnimState.WALK_FIRE):
                     this.animationPlayer.setAnimation(this.game.assets.playerWalkFire);
                     break;
-                    break;
                 default:
                     break;
             }
@@ -489,21 +544,38 @@ class Player extends PhysicsRect{
         
         this.animationPlayer.update(dt);
     }
+    takeDamage(){
+            this.takingDamage = true;
+            this.takingDamageTimer = 0.2;
+    }
     render(ctx){
         this.img = this.animationPlayer.getCurrentFrame();
+        const drawX = this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX;
+        const drawY = this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY;
         if(this.img!=null){
-            if (this.flip) {
+            if(this.takingDamage){
+                if(this.flip){
+                    ctx.save();
+                    ctx.translate(drawX + this.img.width, drawY);
+                    ctx.scale(-1, 1);
+                    this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
+                    ctx.restore();
+                }else{
+                    this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
+                }
+            }
+            else if (this.flip) {
                 ctx.save();
-                ctx.translate(this.x + this.img.width + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
+                ctx.translate(drawX + this.img.width, drawY);
                 ctx.scale(-1, 1);
                 ctx.drawImage(this.img, 0, 0);
                 ctx.restore();
             } else {
-                ctx.drawImage(this.img, this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
+                ctx.drawImage(this.img, drawX, drawY);
             }
             //Actual Physical debug rect
-            // ctx.strokeStyle = "cyan";
-            // ctx.strokeRect(this.x,this.y,this.w,this.h);
+            ctx.strokeStyle = "cyan";
+            ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
             //Image debug rect
             // ctx.strokeStyle = "red";
             // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
@@ -516,7 +588,17 @@ class Player extends PhysicsRect{
         //     ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
         // }
         this.bulletHandeler.render(ctx);
-        
+    }
+    renderHurtFlash(ctx, img, x, y, flashColor){
+        this.offscreenCanvas.width = img.width;
+        this.offscreenCanvas.height = img.height;
+        this.offscreenCtx.clearRect(0, 0, img.width, img.height);
+        this.offscreenCtx.drawImage(img,0, 0);
+
+        this.offscreenCtx.globalCompositeOperation = "source-in";
+        this.offscreenCtx.fillStyle = flashColor;
+        this.offscreenCtx.fillRect(0, 0, img.width, img.height);
+        ctx.drawImage(this.offscreenCanvas, x, y);
     }
 }
 class Character extends PhysicsRect {
@@ -528,6 +610,11 @@ class Character extends PhysicsRect {
         this.init();
     }
     init(){
+        //special effects
+        this.offscreenCanvas = document.createElement("canvas");
+        this.offscreenCtx = this.offscreenCanvas.getContext("2d");
+        this.flashColor = "red";
+        
         //visuals
         this.img = null;
         this.currentAnimState = null;
@@ -544,26 +631,50 @@ class Character extends PhysicsRect {
     }
     render(ctx){
         this.img = this.animationPlayer.getCurrentFrame();
+        const drawX = this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX;
+        const drawY = this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY;
         if(this.img!=null){
-            if (this.flip) {
+            if(this.takingDamage){
+                if(this.flip){
+                    ctx.save();
+                    ctx.translate(drawX + this.img.width, drawY);
+                    ctx.scale(-1, 1);
+                    this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
+                    ctx.restore();
+                }else{
+                    this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
+                }
+            }
+            else if (this.flip) {
                 ctx.save();
-                ctx.translate(this.x + this.img.width + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
+                ctx.translate(drawX + this.img.width, drawY);
                 ctx.scale(-1, 1);
                 ctx.drawImage(this.img, 0, 0);
                 ctx.restore();
             } else {
-                ctx.drawImage(this.img, this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
+                ctx.drawImage(this.img, drawX, drawY);
             }
             //Actual Physical debug rect
-            // ctx.strokeStyle = "cyan";
-            // ctx.strokeRect(this.x,this.y,this.w,this.h);
+            ctx.strokeStyle = "cyan";
+            ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
             //Image debug rect
             // ctx.strokeStyle = "red";
             // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
         }else{
-            ctx.fillStyle = "red";
+            ctx.fillStyle = "cyan";
             ctx.fillRect(this.x,this.y,this.w,this.h);
         }
+    }
+    renderHurtFlash(ctx, img, x, y, flashColor){
+        this.offscreenCanvas.width = img.width;
+        this.offscreenCanvas.height = img.height;
+        this.offscreenCtx.clearRect(0, 0, img.width, img.height);
+        this.offscreenCtx.drawImage(img,0, 0);
+
+        this.offscreenCtx.globalCompositeOperation = "source-in";
+        this.offscreenCtx.fillStyle = flashColor;
+        this.offscreenCtx.fillRect(0, 0, img.width, img.height);
+        ctx.drawImage(this.offscreenCanvas, x, y);
     }
 }
 
@@ -584,6 +695,7 @@ class Robber extends Character {
         this.checkGridX = 0;
         this.checkGridY = 0;
         this.onAir = false;
+        this.entityType = EntityType.ROBBER;
         //timers
         this.movingTimer = 0;
         this.isIdle = false;
@@ -606,6 +718,13 @@ class Robber extends Character {
         this.bulletsInMag = this.maxBullets;
         this.runningToReload = false;
         this.runningToReloadTimer = 0;
+
+        this.takingDamage = false;
+        this.takingDamageTimer = 0;
+        
+        this.flashColorSwapTime = 0.05;
+        this.flashColorSwapTimer = this.flashColorSwapTime; //secs
+        
     }
     update(dt){
         //horizontal movement
@@ -702,6 +821,23 @@ class Robber extends Character {
         }
         this.isMoving = this.direction!=0?true:false;
         this.bulletHandeler.update(dt);
+
+        //taking damage logic
+        if(this.takingDamage){
+            this.takingDamageTimer-=dt;
+            if(this.takingDamageTimer<=0){
+                this.takingDamage=false;
+            }
+            this.flashColorSwapTimer-=dt;
+            if(this.flashColorSwapTimer<=0){
+                this.flashColorSwapTimer = this.flashColorSwapTime;
+                if(this.flashColor=="red"){
+                    this.flashColor="white";
+                }else{
+                    this.flashColor = "red";
+                }
+            }
+        }
         this.updateAnimationState();
         this.animationPlayer.update(dt);
     }
@@ -736,9 +872,12 @@ class Robber extends Character {
         this.gridX = Math.floor(this.centerX()/this.game.tileMap.tileW);
         this.gridy = Math.floor(this.centerY()/this.game.tileMap.tileH);
     }
+    takeDamage(){
+        this.takingDamage = true;
+        this.takingDamageTimer = 0.2;
+    }
     render(ctx){
         super.render(ctx);
-        
         ctx.fillStyle = "yellow";
         ctx.fillRect(this.checkGridX*32 + this.game.camera.camOffsetX,this.checkGridY*32 + this.game.camera.camOffsetY,32,32);
         ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
@@ -899,6 +1038,7 @@ class Game {
         playerIdle, playerWalk, playerJump, playerFall, playerRun,
         playerAimIdle, playerFire, playerWalkAim, playerJumpAim, playerRunAim,
         playerFallAim, playerWalkFire, playerJumpFire, playerFallFire, playerRunFire,
+        playerHurt,
         bullet,
         robberIdle, robberRun, robberFire, robberDeath
     ] = await Promise.all([
@@ -917,6 +1057,7 @@ class Game {
         this.loader.loadImagesFromFolder("assets/male/jumpFire/", 5),
         this.loader.loadImagesFromFolder("assets/male/fallFire/", 5),
         this.loader.loadImagesFromFolder("assets/male/runFire/", 8),
+        this.loader.loadImagesFromFolder("assets/male/hurt/", 3),
         this.loader.loadImagesFromFolder("assets/bullet/", 5),
         this.loader.loadImagesFromFolder("assets/robber/idle/", 5),
         this.loader.loadImagesFromFolder("assets/robber/run/", 8),
@@ -939,6 +1080,7 @@ class Game {
     this.playerJumpFire = playerJumpFire;
     this.playerFallFire = playerFallFire;
     this.playerRunFire = playerRunFire;
+    this.playerHurt = playerHurt;
     this.bullet = bullet;
     this.robberIdle = robberIdle;
     this.robberRun = robberRun;
@@ -961,6 +1103,7 @@ class Game {
         "playerWalkFire": new Animation(this.playerWalkFire,0.8, false, this.playerW, this.playerH),
         "playerJumpFire": new Animation(this.playerJumpFire,0.65,false, this.playerW, this.playerH),
         "playerFallFire": new Animation(this.playerFallFire,0.5, false, this.playerW, this.playerH),
+        "playerHurt": new Animation(this.playerHurt,0.3, false, this.playerW, this.playerH),
         "bullet"        : new Animation(this.bullet, 0.5, true, this.bullet[0].width/2+10, this.bullet[0].height/2+2),
         "robberIdle"    : new Animation(this.robberIdle,   0.5,  true,  this.playerW, this.playerH),
         "robberRun"     : new Animation(this.robberRun,    0.7,  true,  this.playerW, this.playerH),
@@ -986,9 +1129,11 @@ class Game {
         this.robber.update(dt);
     }
     render(ctx){
-        ctx.clearRect(0,0,this.canvasW,this.canvasH);
+        ctx.clearRect(0,0,this.vCanvasW,this.vCanvasH);
         ctx.fillStyle = "black";
-        ctx.fillRect(0,0,this.canvasW,this.canvasH);
+        ctx.fillRect(0,0,this.vCanvasW,this.vCanvasH);
+        ctx.strokeStyle = "white";
+        ctx.strokeRect(0+this.camera.camOffsetX,this.camera.camOffsetY,this.vCanvasW,this.vCanvasH);
         this.player.render(ctx);
         this.tileMap.render(ctx);
         this.camera.render(ctx);
