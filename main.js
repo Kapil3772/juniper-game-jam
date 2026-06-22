@@ -30,6 +30,8 @@ class PhysicsRect extends Rect {
     super(x,y,w,h);
     this.prevX = x;
     this.prevY = y;
+    this.gridX = 0;
+    this.gridY = 0;
   }
   intersects(rect){
     return this.right() > rect.left() && this.bottom() > rect.top() &&
@@ -48,18 +50,16 @@ class GameImage {
             img.onerror = reject;
         });
   }
-  async loadImagesFromFolder(path,count){
-    const imgs = [];
-    for(let i=0; i<count; i++){
-      try{
-        const img = await this.loadImage(path + i +".png");
-        imgs.push(img);
-      }catch(error) {
-        console.log("Cannot load the Image :" + path + i +".png, \nError:- "+error);
-      }
+    async loadImagesFromFolder(path, count){
+        const promises = [];
+        for(let i = 0; i < count; i++){
+            promises.push(this.loadImage(path + i + ".png").catch(err => {
+                console.log("Cannot load: " + path + i + ".png");
+                return null;
+            }));
+        }
+        return (await Promise.all(promises)).filter(Boolean);
     }
-    return imgs;
-  }
 }
 
 const PlayerAnimState = {
@@ -100,7 +100,7 @@ class TileMap {
         this.tileH = tileH;
         this.ongridTiles = new Map();
         this.offGridTiles = new Map();
-        for(let i = 0; i<9; i++){
+        for(let i = 0; i<20; i++){
             this.ongridTiles.set(""+i+",6",new Tile(0 + (i*32),6*32,32,32,this.camera,null));
         }
         this.onScreenTiles = [];
@@ -588,6 +588,24 @@ class Robber extends Character {
         this.movingTimer = 0;
         this.isIdle = false;
         this.idleTimer = 5;
+
+        //attack dependencies
+        this.playerDetectableRadius = 12; //8 grid block
+        let detectW = this.game.tileMap.tileW * this.playerDetectableRadius;
+        this.detectRect = new Rect(this.x,this.y,detectW,this.h)
+        this.playerDetected = false;
+        this.isPatrolling = true;
+        this.patrollResetTimer = 0;
+        this.isFiring = false;
+        this.firingCooldownTimer = 0;
+        this.firingAnimTimer = 0;
+        this.fireHandeled = false;
+
+        this.bulletHandeler = new BulletHandeler(this);
+        this.maxBullets = 4;
+        this.bulletsInMag = this.maxBullets;
+        this.runningToReload = false;
+        this.runningToReloadTimer = 0;
     }
     update(dt){
         //horizontal movement
@@ -603,40 +621,101 @@ class Robber extends Character {
                 this.direction = this.flip?1:-1;
             }
         }
-        console.log(this.isIdle);
-        if(this.isIdle){
-            this.direction = 0;
-            this.idleTimer-=dt;
-            if(this.idleTimer<=0){
-                this.isIdle = false;
-                this.movingTimer = 2;
-            }
-        }else{
-            this.direction = this.flip?1:-1;
-            this.movingTimer -= dt;
-            if(this.movingTimer<=0){
-                this.isIdle = true;
-                this.idleTimer = 5;
+        this.patrollResetTimer = Math.max(this.patrollResetTimer-dt,0);
+        if(this.isPatrolling  && this.patrollResetTimer<=0){
+            if(this.isIdle){
+                this.direction = 0;
+                this.idleTimer-=dt;
+                if(this.idleTimer<=0){
+                    this.isIdle = false;
+                    this.movingTimer = 2;
+                }
+            }else{
+                this.direction = this.flip?1:-1;
+                this.movingTimer -= dt;
+                if(this.movingTimer<=0){
+                    this.isIdle = true;
+                    this.idleTimer = 5;
+                }
             }
         }
-        this.isMoving = this.direction!=0?true:false;
+        
+        this.updateGridPos();
         //vertical movement
         this.applyGravity(dt);
         this.tileCollisionHandeler.updatePhysicsTilesAround();
         this.tileCollisionHandeler.resolveVerticalCollision();
+        this.updateGridPos();
 
+        this.detectRect.x = this.x - this.detectRect.w/2;
+        this.detectRect.y = this.y;
+
+        //Shooting logic
+        if(this.game.player.intersects(this.detectRect)){
+            this.playerDetected = true;
+            this.isPatrolling = false;
+        }else{
+            if(this.playerDetected){
+                this.patrollResetTimer = 1;
+            }
+            this.playerDetected = false;
+            this.isPatrolling = true;
+        }
+
+        if(this.fireHandeled){
+            this.firingCooldownTimer-=dt;
+            this.firingAnimTimer -= dt;
+            if(this.firingAnimTimer<=0){
+                this.isFiring = false;
+            }
+            if(this.firingCooldownTimer<=0){
+                this.fireHandeled=false;
+                if(this.runningToReload){
+                    this.flip = !this.flip;
+                    this.direction = this.flip?1:-1;
+                }
+            }
+        }
+        if(this.playerDetected && !this.runningToReload){
+            this.direction = 0;
+            this.flip = this.centerX() - this.game.player.centerX()<=0?true:false;
+            if(!this.fireHandeled && !this.runningToReload){
+                this.fireHandeled = true;
+                this.isFiring = true;
+                this.firingCooldownTimer = this.game.assets.robberFire.animCompletionTime *3;
+                this.firingAnimTimer = this.game.assets.robberFire.animCompletionTime;
+                this.bulletHandeler.addBullet();
+                this.bulletsInMag -= 1;
+                if(this.bulletsInMag<=0){
+                    this.runningToReload = true;
+                    this.runningToReloadTimer = 4;
+                }
+            }
+        }
+
+        if(this.runningToReload){
+            this.runningToReloadTimer-=dt;
+            if(this.runningToReloadTimer<=0){
+                this.runningToReload=false;
+                this.bulletsInMag = this.maxBullets;
+            }
+        }
+        this.isMoving = this.direction!=0?true:false;
+        this.bulletHandeler.update(dt);
         this.updateAnimationState();
         this.animationPlayer.update(dt);
     }
     updateAnimationState(){
-        if(this.isMoving){
+        if(this.isFiring){
+            this.newAnimState = CharacterAnimState.ROBBER_FIRE;
+        }
+        else if(this.isMoving){
             this.newAnimState = CharacterAnimState.ROBBER_RUN;
         }else{
             this.newAnimState = CharacterAnimState.ROBBER_IDLE;
         }
 
         if(this.newAnimState!=this.currentAnimState){
-            console.log("changing");
             this.currentAnimState = this.newAnimState;
             switch(this.currentAnimState){
                 case(CharacterAnimState.ROBBER_RUN):
@@ -645,18 +724,29 @@ class Robber extends Character {
                 case(CharacterAnimState.ROBBER_IDLE):
                     this.animationPlayer.setAnimation(this.game.assets.robberIdle);
                     break;
+                case(CharacterAnimState.ROBBER_FIRE):
+                    this.animationPlayer.setAnimation(this.game.assets.robberFire);
+                    break;
                 default:
                     break;  
             }
         }
-
-        
+    }
+    updateGridPos(){
+        this.gridX = Math.floor(this.centerX()/this.game.tileMap.tileW);
+        this.gridy = Math.floor(this.centerY()/this.game.tileMap.tileH);
     }
     render(ctx){
         super.render(ctx);
         
         ctx.fillStyle = "yellow";
         ctx.fillRect(this.checkGridX*32 + this.game.camera.camOffsetX,this.checkGridY*32 + this.game.camera.camOffsetY,32,32);
+        ctx.strokeRect(this.x + this.game.camera.camOffsetX,this.y + this.game.camera.camOffsetY,this.w,this.h);
+        //detect rect
+        ctx.strokeStyle = "red";
+        ctx.strokeRect(this.detectRect.x + this.game.camera.camOffsetX,this.detectRect.y + this.game.camera.camOffsetY,this.detectRect.w,this.detectRect.h);
+
+        this.bulletHandeler.render(ctx);
     }
 }
 
@@ -729,9 +819,10 @@ class Game {
         this.gravity = 600; //px per sec square
         //entities
         this.player = new Player(this,20,20,this.playerW,this.playerH);
-        this.robber = new Robber(this,70,20,this.playerW,this.playerH);
         this.camera = new Camera(this.player.centerX(),this.player.centerY(),10,10,this,this.player);
         this.tileMap = new TileMap(32,32,this.camera);
+        this.robber = new Robber(this,70,20,this.playerW,this.playerH);
+
 
 
         //main loop dependencies
@@ -803,50 +894,80 @@ class Game {
         });
     }
     async loadAssets(){
-        this.loader = new GameImage();
-        this.playerIdle = await this.loader.loadImagesFromFolder("assets/male/idle/",5);
-        this.playerWalk = await this.loader.loadImagesFromFolder("assets/male/walk/",8);
-        this.playerJump = await this.loader.loadImagesFromFolder("assets/male/jump/",5);
-        this.playerFall = await this.loader.loadImagesFromFolder("assets/male/fall/",5);
-        this.playerRun = await this.loader.loadImagesFromFolder("assets/male/run/",8);
-        this.playerAimIdle = await this.loader.loadImagesFromFolder("assets/male/aimIdle/",5);
-        this.playerFire = await this.loader.loadImagesFromFolder("assets/male/fire/",5);
-        this.playerWalkAim = await this.loader.loadImagesFromFolder("assets/male/walkAim/",8);
-        this.playerJumpAim = await this.loader.loadImagesFromFolder("assets/male/jumpAim/",5);
-        this.playerRunAim = await this.loader.loadImagesFromFolder("assets/male/runAim/",8);
-        this.playerFallAim = await this.loader.loadImagesFromFolder("assets/male/fallAim/",5);
-        this.playerWalkFire = await this.loader.loadImagesFromFolder("assets/male/walkFire/",8);
-        this.playerJumpFire = await this.loader.loadImagesFromFolder("assets/male/jumpFire/",5);
-        this.playerFallFire = await this.loader.loadImagesFromFolder("assets/male/fallFire/",5);
-        this.playerRunFire = await this.loader.loadImagesFromFolder("assets/male/runFire/",8);
-        this.bullet = await this.loader.loadImagesFromFolder("assets/bullet/",5);
-        this.robberIdle = await this.loader.loadImagesFromFolder("assets/robber/idle/",5);
-        this.robberRun = await this.loader.loadImagesFromFolder("assets/robber/run/",8);
-        this.robberFire = await this.loader.loadImagesFromFolder("assets/robber/fire/",5);
-        this.robberDeath = await this.loader.loadImagesFromFolder("assets/robber/death/",8);
-        this.assets = {
-            "playerIdle" : new Animation(this.playerIdle,0.5,true,this.playerW,this.playerH),
-            "playerWalk" : new Animation(this.playerWalk,0.65,true,this.playerW,this.playerH),
-            "playerJump" : new Animation(this.playerJump,0.65,true,this.playerW,this.playerH),
-            "playerFall" : new Animation(this.playerFall,0.65,true,this.playerW,this.playerH),
-            "playerRun" : new Animation(this.playerRun,0.65,true,this.playerW,this.playerH),
-            "playerAimIdle" : new Animation(this.playerAimIdle,0.5,true,this.playerW,this.playerH),
-            "playerWalkAim" : new Animation(this.playerWalkAim,0.65,true,this.playerW,this.playerH),
-            "playerRunAim" : new Animation(this.playerRunAim,0.65,true,this.playerW,this.playerH),
-            "playerJumpAim" : new Animation(this.playerJumpAim,0.65,true,this.playerW,this.playerH),
-            "playerFallAim" : new Animation(this.playerFallAim,0.65,true,this.playerW,this.playerH),
-            "playerFire" : new Animation(this.playerFire,0.5,false,this.playerW,this.playerH),
-            "playerRunFire" : new Animation(this.playerRunFire,0.8,false,this.playerW,this.playerH),
-            "playerWalkFire" : new Animation(this.playerWalkFire,0.8,false,this.playerW,this.playerH),
-            "playerJumpFire" : new Animation(this.playerJumpFire,0.65,false,this.playerW,this.playerH),
-            "playerFallFire" : new Animation(this.playerFallFire,0.5,false,this.playerW,this.playerH),
-            "bullet" : new Animation(this.bullet,0.5,true,this.bullet[0].width/2 + 10,this.bullet[0].height/2 + 2),
-            "robberIdle" : new Animation(this.robberIdle,0.5,true,this.playerW,this.playerH),
-            "robberRun" : new Animation(this.robberRun,0.7,true,this.playerW,this.playerH),
-            "robberFire" : new Animation(this.robberFire,0.5,true,this.playerW,this.playerH),
-            "robberDeath" : new Animation(this.robberDeath,0.5,true,this.playerW,this.playerH),
-        }
+    this.loader = new GameImage();
+    const [
+        playerIdle, playerWalk, playerJump, playerFall, playerRun,
+        playerAimIdle, playerFire, playerWalkAim, playerJumpAim, playerRunAim,
+        playerFallAim, playerWalkFire, playerJumpFire, playerFallFire, playerRunFire,
+        bullet,
+        robberIdle, robberRun, robberFire, robberDeath
+    ] = await Promise.all([
+        this.loader.loadImagesFromFolder("assets/male/idle/", 5),
+        this.loader.loadImagesFromFolder("assets/male/walk/", 8),
+        this.loader.loadImagesFromFolder("assets/male/jump/", 5),
+        this.loader.loadImagesFromFolder("assets/male/fall/", 5),
+        this.loader.loadImagesFromFolder("assets/male/run/", 8),
+        this.loader.loadImagesFromFolder("assets/male/aimIdle/", 5),
+        this.loader.loadImagesFromFolder("assets/male/fire/", 5),
+        this.loader.loadImagesFromFolder("assets/male/walkAim/", 8),
+        this.loader.loadImagesFromFolder("assets/male/jumpAim/", 5),
+        this.loader.loadImagesFromFolder("assets/male/runAim/", 8),
+        this.loader.loadImagesFromFolder("assets/male/fallAim/", 5),
+        this.loader.loadImagesFromFolder("assets/male/walkFire/", 8),
+        this.loader.loadImagesFromFolder("assets/male/jumpFire/", 5),
+        this.loader.loadImagesFromFolder("assets/male/fallFire/", 5),
+        this.loader.loadImagesFromFolder("assets/male/runFire/", 8),
+        this.loader.loadImagesFromFolder("assets/bullet/", 5),
+        this.loader.loadImagesFromFolder("assets/robber/idle/", 5),
+        this.loader.loadImagesFromFolder("assets/robber/run/", 8),
+        this.loader.loadImagesFromFolder("assets/robber/fire/", 5),
+        this.loader.loadImagesFromFolder("assets/robber/death/", 8),
+    ]);
+    //images
+    this.playerIdle = playerIdle;
+    this.playerWalk = playerWalk;
+    this.playerJump = playerJump;
+    this.playerFall = playerFall;
+    this.playerRun = playerRun;
+    this.playerAimIdle = playerAimIdle;
+    this.playerFire = playerFire;
+    this.playerWalkAim = playerWalkAim;
+    this.playerJumpAim = playerJumpAim;
+    this.playerRunAim = playerRunAim;
+    this.playerFallAim = playerFallAim;
+    this.playerWalkFire = playerWalkFire;
+    this.playerJumpFire = playerJumpFire;
+    this.playerFallFire = playerFallFire;
+    this.playerRunFire = playerRunFire;
+    this.bullet = bullet;
+    this.robberIdle = robberIdle;
+    this.robberRun = robberRun;
+    this.robberFire = robberFire;
+    this.robberDeath = robberDeath;
+    //Animations
+    this.assets = {
+        "playerIdle"    : new Animation(this.playerIdle,   0.5,  true,  this.playerW, this.playerH),
+        "playerWalk"    : new Animation(this.playerWalk,   0.65, true,  this.playerW, this.playerH),
+        "playerJump"    : new Animation(this.playerJump,   0.65, true,  this.playerW, this.playerH),
+        "playerFall"    : new Animation(this.playerFall,   0.65, true,  this.playerW, this.playerH),
+        "playerRun"     : new Animation(this.playerRun,    0.65, true,  this.playerW, this.playerH),
+        "playerAimIdle" : new Animation(this.playerAimIdle,0.5,  true,  this.playerW, this.playerH),
+        "playerWalkAim" : new Animation(this.playerWalkAim,0.65, true,  this.playerW, this.playerH),
+        "playerRunAim"  : new Animation(this.playerRunAim, 0.65, true,  this.playerW, this.playerH),
+        "playerJumpAim" : new Animation(this.playerJumpAim,0.65, true,  this.playerW, this.playerH),
+        "playerFallAim" : new Animation(this.playerFallAim,0.65, true,  this.playerW, this.playerH),
+        "playerFire"    : new Animation(this.playerFire,   0.5,  false, this.playerW, this.playerH),
+        "playerRunFire" : new Animation(this.playerRunFire,0.8,  false, this.playerW, this.playerH),
+        "playerWalkFire": new Animation(this.playerWalkFire,0.8, false, this.playerW, this.playerH),
+        "playerJumpFire": new Animation(this.playerJumpFire,0.65,false, this.playerW, this.playerH),
+        "playerFallFire": new Animation(this.playerFallFire,0.5, false, this.playerW, this.playerH),
+        "bullet"        : new Animation(this.bullet, 0.5, true, this.bullet[0].width/2+10, this.bullet[0].height/2+2),
+        "robberIdle"    : new Animation(this.robberIdle,   0.5,  true,  this.playerW, this.playerH),
+        "robberRun"     : new Animation(this.robberRun,    0.7,  true,  this.playerW, this.playerH),
+        "robberFire"    : new Animation(this.robberFire,   0.5,  false, this.playerW, this.playerH),
+        "robberDeath"   : new Animation(this.robberDeath,  0.5,  false, this.playerW, this.playerH),
     }
+}
     gameloop(){
         //delta time calculation
         this.nowMs = performance.now();
