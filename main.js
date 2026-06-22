@@ -81,25 +81,27 @@ const PlayerAnimState = {
 };
 
 class Tile extends PhysicsRect {
-    constructor(x,y,w,h,img){
+    constructor(x,y,w,h,camera,img){
         super(x,y,w,h);
+        this.camera = camera;
         this.img = img;
     }
     update(dt){}
     render(ctx){
         ctx.strokeStyle = "cyan";
-        ctx.strokeRect(this.x,this.y,this.w,this.h);
+        ctx.strokeRect(this.x + this.camera.camOffsetX,this.y+this.camera.camOffsetY,this.w,this.h);
     }
 }
 
 class TileMap {
-    constructor(tileW,tileH){
+    constructor(tileW,tileH,camera){
+        this.camera = camera;
         this.tileW = tileW;
         this.tileH = tileH;
         this.ongridTiles = new Map();
         this.offGridTiles = new Map();
         for(let i = 0; i<9; i++){
-            this.ongridTiles.set(""+i+",6",new Tile(0 + (i*32),6*32,32,32));
+            this.ongridTiles.set(""+i+",6",new Tile(0 + (i*32),6*32,32,32,this.camera,null));
         }
         this.onScreenTiles = [];
     }
@@ -107,6 +109,9 @@ class TileMap {
         for (const tile of this.ongridTiles.values()) {
             tile.render(ctx);
         }
+    }
+    checkForPhysicsTile(gridx,gridy){
+        return this.ongridTiles.has(gridx+","+gridy);
     }
 }
 class Animation {
@@ -224,7 +229,10 @@ class Bullet extends PhysicsRect {
     }
     render(ctx){
         const img = this.bulletAnimPlayer.getCurrentFrame();
-        ctx.drawImage(img,this.x+this.bulletAnim.xOffset,this.y+this.bulletAnim.yOffset);
+        ctx.drawImage(
+            img,
+            this.x+this.bulletAnim.xOffset + this.entity.game.camera.camOffsetX,
+            this.y+this.bulletAnim.yOffset + this.entity.game.camera.camOffsetY);
         //ctx.strokeStyle = "red";
         //ctx.strokeRect(this.x,this.y,this.w,this.h);
     }
@@ -238,6 +246,10 @@ class BulletHandeler {
     update(dt){
         for(const bullet of this.bullets){
             bullet.update(dt);
+            if(!bullet.intersects(this.entity.game.gameRenderingRect)){
+                let id = this.bullets.indexOf(bullet);
+                this.bullets.splice(id,1);
+            }
         }
     }
     render(ctx){
@@ -251,6 +263,7 @@ class BulletHandeler {
         this.bullets.push(new Bullet(this.entity,this.entity.centerX(),this.entity.centerY()-15,anim.imgs[0].width,anim.imgs[0].height/4,direction,anim));
     }
 }
+
 class Player extends PhysicsRect{
     constructor(game,x,y,w,h){
         super(x,y,w,h);
@@ -302,13 +315,14 @@ class Player extends PhysicsRect{
         }
         if(this.game.globalInputs.shiftPressed && this.direction!=0){
             this.isRunning = true;
-            this.runningSpeedFactor = 2;
+            this.runningSpeedFactor = 2.1;
         }else{
             this.isRunning = false;
             this.runningSpeedFactor = 1;
         }
 
         this.x = this.x + this.xVelocity*dt*this.runningSpeedFactor*this.gunRecoilFactor*this.direction;
+
         this.tileCollisionHandeler.updatePhysicsTilesAround();
         this.tileCollisionHandeler.resolveHorizontalCollision();
         //gravity handel
@@ -421,7 +435,6 @@ class Player extends PhysicsRect{
         }
 
         if(this.newAnimState!=this.currentAnimState){
-            console.log(this.newAnimState);
             this.currentAnimState = this.newAnimState;
             switch(this.currentAnimState){
                 case(PlayerAnimState.JUMP):
@@ -481,29 +494,169 @@ class Player extends PhysicsRect{
         if(this.img!=null){
             if (this.flip) {
                 ctx.save();
-                ctx.translate(this.x + this.img.width + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset);
+                ctx.translate(this.x + this.img.width + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
                 ctx.scale(-1, 1);
                 ctx.drawImage(this.img, 0, 0);
                 ctx.restore();
             } else {
-                ctx.drawImage(this.img, this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset);
+                ctx.drawImage(this.img, this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
             }
             //Actual Physical debug rect
-            ctx.strokeStyle = "cyan";
-            ctx.strokeRect(this.x,this.y,this.w,this.h);
+            // ctx.strokeStyle = "cyan";
+            // ctx.strokeRect(this.x,this.y,this.w,this.h);
             //Image debug rect
-            ctx.strokeStyle = "red";
-            ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
+            // ctx.strokeStyle = "red";
+            // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
         }else{
             ctx.fillStyle = "cyan";
             ctx.fillRect(this.x,this.y,this.w,this.h);
         }
-        ctx.fillStyle = "red";
-        for(const tile of this.tileCollisionHandeler.physicsRectAround){
-            ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
-        }
+        // ctx.fillStyle = "red";
+        // for(const tile of this.tileCollisionHandeler.physicsRectAround){
+        //     ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
+        // }
         this.bulletHandeler.render(ctx);
         
+    }
+}
+class Character extends PhysicsRect {
+    constructor(game,x,y,w,h){
+        super(x,y,w,h);
+        this.game = game;
+        this.xVelocity = 0;
+        this.yVelocity = 0;
+        this.init();
+    }
+    init(){
+        //visuals
+        this.img = null;
+        this.currentAnimState = null;
+        this.newAnimState = null;
+        this.animationPlayer = new AnimationPlayer();
+        this.flip = false;
+        //physics ddependencies
+        this.tileCollisionHandeler = new TileCollisionHandeler(this,32,32);
+        this.direction = 0;
+    }
+    applyGravity(dt){
+        this.yVelocity += this.game.gravity*dt;
+        this.y = this.y + this.yVelocity*dt;
+    }
+    render(ctx){
+        this.img = this.animationPlayer.getCurrentFrame();
+        if(this.img!=null){
+            if (this.flip) {
+                ctx.save();
+                ctx.translate(this.x + this.img.width + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
+                ctx.scale(-1, 1);
+                ctx.drawImage(this.img, 0, 0);
+                ctx.restore();
+            } else {
+                ctx.drawImage(this.img, this.x + this.animationPlayer.animation.xOffset + this.game.camera.camOffsetX, this.y + this.animationPlayer.animation.yOffset + this.game.camera.camOffsetY);
+            }
+            //Actual Physical debug rect
+            // ctx.strokeStyle = "cyan";
+            // ctx.strokeRect(this.x,this.y,this.w,this.h);
+            //Image debug rect
+            // ctx.strokeStyle = "red";
+            // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
+        }else{
+            ctx.fillStyle = "red";
+            ctx.fillRect(this.x,this.y,this.w,this.h);
+        }
+    }
+}
+
+const CharacterAnimState = {
+    ROBBER_IDLE : "ROBBER_IDLE",
+    ROBBER_RUN : "ROBBER_RUN",
+    ROBBER_FIRE : "ROBBER_FIRE",
+    ROBBER_DEATH : "ROBBER_DEATH"
+};
+class Robber extends Character {
+    constructor(game,x,y,w,h){
+        super(game,x,y,w,h);
+        this.currentAnimState = CharacterAnimState.ROBBER_IDLE;
+        this.animationPlayer.animation = this.game.assets.robberIdle;
+        this.xVelocity = 47 * 2.1;
+        this.direction = 1;
+        this.isMoving = false;
+        this.checkGridX = 0;
+        this.checkGridY = 0;
+        this.onAir = false;
+        //timers
+        this.movingTimer = 0;
+        this.isIdle = false;
+        this.idleTimer = 5;
+    }
+    update(dt){
+        //horizontal movement
+        this.x += this.xVelocity*this.direction*dt;
+
+        this.onAir = this.yVelocity!=0?true:false;
+        this.checkGridX = Math.floor(this.x/this.game.tileMap.tileW);
+        this.checkGridX += this.flip?1:-1;
+        this.checkGridY = Math.ceil(this.bottom()/this.game.tileMap.tileH);
+        if(!this.onAir){
+            if(!this.game.tileMap.checkForPhysicsTile(this.checkGridX,  this.checkGridY)){
+                this.flip = !this.flip;
+                this.direction = this.flip?1:-1;
+            }
+        }
+        console.log(this.isIdle);
+        if(this.isIdle){
+            this.direction = 0;
+            this.idleTimer-=dt;
+            if(this.idleTimer<=0){
+                this.isIdle = false;
+                this.movingTimer = 2;
+            }
+        }else{
+            this.direction = this.flip?1:-1;
+            this.movingTimer -= dt;
+            if(this.movingTimer<=0){
+                this.isIdle = true;
+                this.idleTimer = 5;
+            }
+        }
+        this.isMoving = this.direction!=0?true:false;
+        //vertical movement
+        this.applyGravity(dt);
+        this.tileCollisionHandeler.updatePhysicsTilesAround();
+        this.tileCollisionHandeler.resolveVerticalCollision();
+
+        this.updateAnimationState();
+        this.animationPlayer.update(dt);
+    }
+    updateAnimationState(){
+        if(this.isMoving){
+            this.newAnimState = CharacterAnimState.ROBBER_RUN;
+        }else{
+            this.newAnimState = CharacterAnimState.ROBBER_IDLE;
+        }
+
+        if(this.newAnimState!=this.currentAnimState){
+            console.log("changing");
+            this.currentAnimState = this.newAnimState;
+            switch(this.currentAnimState){
+                case(CharacterAnimState.ROBBER_RUN):
+                    this.animationPlayer.setAnimation(this.game.assets.robberRun);
+                    break;
+                case(CharacterAnimState.ROBBER_IDLE):
+                    this.animationPlayer.setAnimation(this.game.assets.robberIdle);
+                    break;
+                default:
+                    break;  
+            }
+        }
+
+        
+    }
+    render(ctx){
+        super.render(ctx);
+        
+        ctx.fillStyle = "yellow";
+        ctx.fillRect(this.checkGridX*32 + this.game.camera.camOffsetX,this.checkGridY*32 + this.game.camera.camOffsetY,32,32);
     }
 }
 
@@ -520,6 +673,30 @@ class GameInputs {
     }
 }
 
+class Camera extends Rect{
+    constructor(x,y,w,h,game,relativeEntity){
+        super(x,y,w,h);
+        this.game = game;
+        this.entity = relativeEntity; // entity where thr camera focuses
+        this.camOffsetX = 0;
+        this.camOffsetY = 0;
+        this.xSmoothnessFactor = 4;
+        this.ySmoothnessFactor = 4;
+    }
+    update(dt){
+        this.x += (this.entity.centerX() - this.x) *dt*this.xSmoothnessFactor;
+        this.y += (this.entity.centerY() - 30 - this.y) *dt*this.ySmoothnessFactor;
+        this.camOffsetX = this.game.vCanvasW/2 - this.x;
+        this.camOffsetY = this.game.vCanvasH/2 - this.y;
+
+        this.game.gameRenderingRect.x = this.x - this.game.gameRenderingRect.w/2;
+        this.game.gameRenderingRect.y = this.y - this.game.gameRenderingRect.h/2;
+    }
+    render(ctx){
+        // ctx.fillStyle = "green";
+        // ctx.fillRect(this.x - this.w/2, this.y - this.h/2,this.w,this.h);
+    }
+}
 class Game {
     constructor(){
         this.canvas = document.getElementById("game");
@@ -541,6 +718,7 @@ class Game {
     }
     async init(){
         //game inputs
+        this.gameRenderingRect = new Rect(-50,-50,this.vCanvasW + 100,this.vCanvasH + 100);
         this.globalInputs = new GameInputs();
         this.bindInputs();
         this.playerW = 16;
@@ -549,11 +727,12 @@ class Game {
 
         //environment dependencies
         this.gravity = 600; //px per sec square
-        this.tileMap = new TileMap(32,32);
-
-
         //entities
         this.player = new Player(this,20,20,this.playerW,this.playerH);
+        this.robber = new Robber(this,70,20,this.playerW,this.playerH);
+        this.camera = new Camera(this.player.centerX(),this.player.centerY(),10,10,this,this.player);
+        this.tileMap = new TileMap(32,32,this.camera);
+
 
         //main loop dependencies
         this.nowMs = performance.now();
@@ -641,6 +820,10 @@ class Game {
         this.playerFallFire = await this.loader.loadImagesFromFolder("assets/male/fallFire/",5);
         this.playerRunFire = await this.loader.loadImagesFromFolder("assets/male/runFire/",8);
         this.bullet = await this.loader.loadImagesFromFolder("assets/bullet/",5);
+        this.robberIdle = await this.loader.loadImagesFromFolder("assets/robber/idle/",5);
+        this.robberRun = await this.loader.loadImagesFromFolder("assets/robber/run/",8);
+        this.robberFire = await this.loader.loadImagesFromFolder("assets/robber/fire/",5);
+        this.robberDeath = await this.loader.loadImagesFromFolder("assets/robber/death/",8);
         this.assets = {
             "playerIdle" : new Animation(this.playerIdle,0.5,true,this.playerW,this.playerH),
             "playerWalk" : new Animation(this.playerWalk,0.65,true,this.playerW,this.playerH),
@@ -658,6 +841,10 @@ class Game {
             "playerJumpFire" : new Animation(this.playerJumpFire,0.65,false,this.playerW,this.playerH),
             "playerFallFire" : new Animation(this.playerFallFire,0.5,false,this.playerW,this.playerH),
             "bullet" : new Animation(this.bullet,0.5,true,this.bullet[0].width/2 + 10,this.bullet[0].height/2 + 2),
+            "robberIdle" : new Animation(this.robberIdle,0.5,true,this.playerW,this.playerH),
+            "robberRun" : new Animation(this.robberRun,0.7,true,this.playerW,this.playerH),
+            "robberFire" : new Animation(this.robberFire,0.5,true,this.playerW,this.playerH),
+            "robberDeath" : new Animation(this.robberDeath,0.5,true,this.playerW,this.playerH),
         }
     }
     gameloop(){
@@ -673,13 +860,18 @@ class Game {
     }
     update(dt){
         this.player.update(dt);
+        this.camera.update(dt);
+
+        this.robber.update(dt);
     }
     render(ctx){
         ctx.clearRect(0,0,this.canvasW,this.canvasH);
         ctx.fillStyle = "black";
         ctx.fillRect(0,0,this.canvasW,this.canvasH);
         this.player.render(ctx);
-        this,this.tileMap.render(ctx);
+        this.tileMap.render(ctx);
+        this.camera.render(ctx);
+        this.robber.render(ctx);
 
         //rendering vCtx into ctx
         this.ctx.clearRect(0,0,250,250);
