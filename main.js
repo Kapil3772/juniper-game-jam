@@ -1011,6 +1011,125 @@ class Camera extends Rect {
   }
 }
 
+class PopupCard extends Rect {
+  constructor(game, x, y, w, h, cardData) {
+    super(x, y, w, h);
+    this.game = game;
+    this.cardData = cardData;
+    this.displacementX = 0;
+    this.animProgress = 0;
+  }
+
+  easeOut(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  update(dt) {
+    this.animProgress = Math.min(1, this.animProgress + dt / 0.3);
+  }
+
+  resetAnim() {
+    this.animProgress = 0;
+  }
+
+  render(ctx, cardColor, isRight) {
+    this.displacementX = isRight ? 110-80 : -110-80;
+
+    const eased = this.easeOut(this.animProgress);
+    const slideOffset = (1 - eased) * 60;
+
+    const x = this.x + this.displacementX;
+    const y = this.y - this.h / 2 + slideOffset;
+
+    ctx.save();
+    ctx.globalAlpha = eased;
+
+    // Shadow
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 6;
+
+    // Main card background — tinted with slice color
+    ctx.fillStyle = cardColor + "22";
+    ctx.strokeStyle = cardColor;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(x, y, this.w, this.h, 14);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Color strip at top
+    ctx.fillStyle = cardColor;
+    ctx.beginPath();
+    ctx.roundRect(x, y, this.w, 10, [14, 14, 0, 0]);
+    ctx.fill();
+
+    // ==========================
+    // BUFF SECTION
+    // ==========================
+
+    const buffY = y + 22;
+
+    ctx.fillStyle = "rgba(42,157,143,0.15)";
+    ctx.fillRect(x + 10, buffY, this.w - 20, 80);
+
+    ctx.fillStyle = "#2A9D8F";
+    ctx.font = "bold 11px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("BUFF", x + 18, buffY + 18);
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 15px Arial";
+    ctx.fillText(this.cardData.buffLabel, x + 18, buffY + 38);
+
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.font = "12px Arial";
+    ctx.fillText(this.cardData.buffDetail, x + 18, buffY + 57);
+
+    // ==========================
+    // DEBUFF SECTION
+    // ==========================
+
+    const debuffY = buffY + 92;
+
+    ctx.fillStyle = "rgba(231,111,81,0.15)";
+    ctx.fillRect(x + 10, debuffY, this.w - 20, 80);
+
+    ctx.fillStyle = "#E76F51";
+    ctx.font = "bold 11px Arial";
+    ctx.fillText("DEBUFF", x + 18, debuffY + 18);
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 15px Arial";
+    ctx.fillText(this.cardData.debuffLabel, x + 18, debuffY + 38);
+
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.font = "12px Arial";
+    ctx.fillText(this.cardData.debuffDetail, x + 18, debuffY + 57);
+
+    // Rivets
+    const rivets = [
+      [x + 12, y + 20],
+      [x + this.w - 12, y + 20],
+      [x + 12, y + this.h - 12],
+      [x + this.w - 12, y + this.h - 12],
+    ];
+    for (const [rx, ry] of rivets) {
+      ctx.beginPath();
+      ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#D4AF37";
+      ctx.fill();
+      ctx.strokeStyle = "#5A4200";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
 class Wheel {
   constructor(game, x, y, rad) {
     this.game = game;
@@ -1018,12 +1137,49 @@ class Wheel {
     this.y = y;
     this.rad = rad;
     this.angularVelocity = 0; //Radian per sec
-    this.friction = -20; //Radian per sec
+    this.friction = -12; //Radian per sec
     this.angle = 0;
     this.spinVelocity = 55;
     this.partition = 6;
     this.unitPartAngle = (Math.PI * 2) / this.partition;
-    this.colorIndex = 0;
+    this.wheelColours = ["#FF6B6B", "#4ECDC4", "#FFE66D"];
+
+    //pointer
+    this.lPointerIndex = null;
+    this.rPointerIndex = null;
+    this.lPointerAngle = 220; //deg
+    this.rPointerAngle = 320;
+    //spin
+    this.spinHandeled = false;
+    this.indexCalculated = false;
+    this.spinCoolDownTimer = 0;
+    //popup
+    this.popups = [
+      new PopupCard(
+        this.game,
+        this.x,
+        this.y,
+        200,
+        280,
+        this.game.cardData.data0,
+      ),
+      new PopupCard(
+        this.game,
+        this.x,
+        this.y,
+        200,
+        280,
+        this.game.cardData.data1,
+      ),
+      new PopupCard(
+        this.game,
+        this.x,
+        this.y,
+        200,
+        280,
+        this.game.cardData.data2,
+      ),
+    ];
   }
   update(dt) {
     this.angle += this.angularVelocity * dt;
@@ -1031,35 +1187,78 @@ class Wheel {
       this.angularVelocity + this.friction * dt,
       0,
     );
-    if (this.game.globalInputs.attackPressed) {
+    if (this.game.globalInputs.attackPressed && !this.spinHandeled) {
       this.spin();
+      this.spinHandeled = true;
+    }
+    if (
+      this.spinHandeled &&
+      this.angularVelocity == 0 &&
+      !this.indexCalculated
+    ) {
+      this.indexCalculated = true;
+      this.calculateIndex();
+      this.spinCoolDownTimer = 5;
+    }
+    if (this.indexCalculated) {
+      this.spinCoolDownTimer -= dt;
+      if (this.spinCoolDownTimer <= 0) {
+        this.spinHandeled = false;
+        this.indexCalculated = false;
+        this.spinCoolDownTimer = 0;
+      }
+    }
+    if (this.spinHandeled && this.indexCalculated) {
+      this.popups[this.rPointerIndex % 3].update(dt);
+      this.popups[this.lPointerIndex % 3].update(dt);
     }
   }
   spin() {
     this.angularVelocity = this.spinVelocity;
   }
+  calculateIndex() {
+    const wheelDeg =
+      ((((this.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) * 180) /
+      Math.PI;
+
+    this.lPointerIndex = Math.floor(
+      ((this.lPointerAngle - wheelDeg + 360) % 360) / 60,
+    );
+
+    this.rPointerIndex = Math.floor(
+      ((this.rPointerAngle - wheelDeg + 360) % 360) / 60,
+    );
+    // Reset slide-up animation for both cards
+    this.popups[this.lPointerIndex % 3].resetAnim();
+    this.popups[this.rPointerIndex % 3].resetAnim();
+  }
   render(ctx) {
     ctx.save();
+
     ctx.translate(
       this.x + this.game.camera.camOffsetX,
       this.y + this.game.camera.camOffsetY,
     );
+
+    // Shadow
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 4;
+
     ctx.rotate(this.angle);
 
-    ctx.strokeStyle = "black";
+    // Wheel slices
 
     for (let i = 0; i < this.partition; i++) {
       const angle = i * this.unitPartAngle;
 
-      const colorIndex = i % 3;
+      const colors = [
+        "#E76F51", // coral
+        "#2A9D8F", // teal
+        "#E9C46A", // gold
+      ];
 
-      if (colorIndex === 0) {
-        ctx.fillStyle = "red";
-      } else if (colorIndex === 1) {
-        ctx.fillStyle = "green";
-      } else {
-        ctx.fillStyle = "blue";
-      }
+      ctx.fillStyle = colors[i % colors.length];
 
       ctx.beginPath();
       ctx.moveTo(0, 0);
@@ -1067,8 +1266,149 @@ class Wheel {
       ctx.closePath();
 
       ctx.fill();
+
+      // Slice borders
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#222";
       ctx.stroke();
     }
+
+    // Outer golden rim
+
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.arc(0, 0, this.rad, 0, Math.PI * 2);
+
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = "#C9A227";
+    ctx.stroke();
+
+    // Inner rim
+
+    ctx.beginPath();
+    ctx.arc(0, 0, this.rad - 8, 0, Math.PI * 2);
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#FFE08A";
+    ctx.stroke();
+
+    // Decorative bolts
+
+    for (let i = 0; i < this.partition; i++) {
+      const a = i * this.unitPartAngle;
+
+      const x = Math.cos(a) * (this.rad - 6);
+      const y = Math.sin(a) * (this.rad - 6);
+
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+
+      ctx.fillStyle = "#D4AF37";
+      ctx.fill();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#5A4200";
+      ctx.stroke();
+    }
+    // Center knob
+
+    const grad = ctx.createRadialGradient(-6, -6, 3, 0, 0, 35);
+
+    grad.addColorStop(0, "#FFE9A8");
+    grad.addColorStop(1, "#B8860B");
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 28, 0, Math.PI * 2);
+
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#5A4200";
+    ctx.stroke();
+
+    // Inner knob
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+
+    ctx.fillStyle = "#c5af65";
+    ctx.fill();
+    ctx.restore();
+
+    //pointers
+    this.renderPointer(ctx, this.lPointerAngle);
+    this.renderPointer(ctx, this.rPointerAngle);
+
+    if (this.spinHandeled && this.indexCalculated) {
+      this.renderPopupCard(ctx, (this.rPointerIndex % 3) + 1, true);
+      this.renderPopupCard(ctx, (this.lPointerIndex % 3) + 1, false);
+    }
+  }
+
+  renderPopupCard(ctx, index, isRight) {
+    this.popups[index - 1].render(ctx, this.wheelColours[index - 1], isRight);
+  }
+  renderPointer(ctx, degree) {
+    const cx = this.x + this.game.camera.camOffsetX;
+    const cy = this.y + this.game.camera.camOffsetY;
+
+    const pointerDist = this.rad + 12;
+
+    const rad = (degree * Math.PI) / 180;
+
+    // Position on circle
+    const x = cx + Math.cos(rad) * pointerDist;
+    const y = cy + Math.sin(rad) * pointerDist;
+
+    ctx.save();
+
+    ctx.translate(x, y);
+
+    // Point toward center automatically
+    const angleToCenter = Math.atan2(cy - y, cx - x);
+
+    // Triangle is drawn pointing up by default
+    ctx.rotate(angleToCenter + Math.PI / 2);
+
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+
+    // Gold border
+    ctx.beginPath();
+    ctx.moveTo(0, -30);
+    ctx.lineTo(-22, 12);
+    ctx.lineTo(22, 12);
+    ctx.closePath();
+
+    ctx.fillStyle = "#D4AF37";
+    ctx.fill();
+
+    // Inner red
+    ctx.beginPath();
+    ctx.moveTo(0, -22);
+    ctx.lineTo(-14, 6);
+    ctx.lineTo(14, 6);
+    ctx.closePath();
+
+    ctx.fillStyle = "#D62828";
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Rivet
+    ctx.beginPath();
+    ctx.arc(0, 8, 6, 0, Math.PI * 2);
+
+    ctx.fillStyle = "#B8860B";
+    ctx.fill();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#5A4200";
+    ctx.stroke();
+
     ctx.restore();
   }
 }
@@ -1125,7 +1465,7 @@ class Game {
       this,
       this.vCanvasW / 2,
       this.vCanvasH / 2,
-      this.vCanvasW * 0.2,
+      this.vCanvasW * 0.19,
     );
 
     //main loop dependenciesa
@@ -1416,6 +1756,26 @@ class Game {
         this.playerW,
         this.playerH,
       ),
+    };
+    this.cardData = {
+      data0: {
+        buffLabel: "Speed",
+        buffDetail: "You gain 2X speed",
+        debuffLabel: "Stronger Enemies",
+        debuffDetail: "Enemy health get 2x more",
+      },
+      data1: {
+        buffLabel: "Speed",
+        buffDetail: "You gain 2X speed",
+        debuffLabel: "Stronger Enemies",
+        debuffDetail: "Enemy health get 2x more",
+      },
+      data2: {
+        buffLabel: "Speed",
+        buffDetail: "You gain 2X speed",
+        debuffLabel: "Stronger Enemies",
+        debuffDetail: "Enemy health get 2x more",
+      },
     };
   }
   gameloop() {
