@@ -1016,6 +1016,8 @@ class PopupCard extends Rect {
     super(x, y, w, h);
     this.game = game;
     this.cardData = cardData;
+    this.gap = 100; // gap betn 2 cards
+    this.baseDisplacementX = this.w;
     this.displacementX = 0;
     this.animProgress = 0;
   }
@@ -1025,7 +1027,7 @@ class PopupCard extends Rect {
   }
 
   update(dt) {
-    this.animProgress = Math.min(1, this.animProgress + dt / 0.3);
+    this.animProgress = Math.min(1, this.animProgress + dt);
   }
 
   resetAnim() {
@@ -1033,12 +1035,18 @@ class PopupCard extends Rect {
   }
 
   render(ctx, cardColor, isRight) {
-    this.displacementX = isRight ? 110-80 : -110-80;
+    let gapW = this.gap / 2;
+    if (isRight) {
+      this.displacementX = 0;
+    } else {
+      this.displacementX = -this.baseDisplacementX;
+      gapW *= -1;
+    }
 
     const eased = this.easeOut(this.animProgress);
-    const slideOffset = (1 - eased) * 60;
+    const slideOffset = (1 - eased) * 220;
 
-    const x = this.x + this.displacementX;
+    const x = this.x + this.displacementX + gapW;
     const y = this.y - this.h / 2 + slideOffset;
 
     ctx.save();
@@ -1047,10 +1055,10 @@ class PopupCard extends Rect {
     // Shadow
     ctx.shadowColor = "rgba(0,0,0,0.4)";
     ctx.shadowBlur = 20;
-    ctx.shadowOffsetY = 6;
+    ctx.shadowOffsetY = 2;
 
     // Main card background — tinted with slice color
-    ctx.fillStyle = cardColor + "22";
+    ctx.fillStyle = cardColor + "40";
     ctx.strokeStyle = cardColor;
     ctx.lineWidth = 4;
     ctx.beginPath();
@@ -1080,11 +1088,11 @@ class PopupCard extends Rect {
     ctx.textAlign = "left";
     ctx.fillText("BUFF", x + 18, buffY + 18);
 
-    ctx.fillStyle = "#FFFFFF";
+    ctx.fillStyle = "#e5ffb9";
     ctx.font = "bold 15px Arial";
     ctx.fillText(this.cardData.buffLabel, x + 18, buffY + 38);
 
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillStyle = "rgb(108, 108, 108)";
     ctx.font = "12px Arial";
     ctx.fillText(this.cardData.buffDetail, x + 18, buffY + 57);
 
@@ -1101,11 +1109,11 @@ class PopupCard extends Rect {
     ctx.font = "bold 11px Arial";
     ctx.fillText("DEBUFF", x + 18, debuffY + 18);
 
-    ctx.fillStyle = "#FFFFFF";
+    ctx.fillStyle = "#ffbebe";
     ctx.font = "bold 15px Arial";
     ctx.fillText(this.cardData.debuffLabel, x + 18, debuffY + 38);
 
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillStyle = "rgba(209, 209, 209, 0.74)";
     ctx.font = "12px Arial";
     ctx.fillText(this.cardData.debuffDetail, x + 18, debuffY + 57);
 
@@ -1153,30 +1161,39 @@ class Wheel {
     this.spinHandeled = false;
     this.indexCalculated = false;
     this.spinCoolDownTimer = 0;
+    this.spinCoolDownTime = 7;
+    //effect
+    this.animatingWinnerSection = false;
+    this.animatingWinnerSectionTimer = 0;
+    this.animatingWinnerSectionTime = 2; //sec
+    this.brightening = true;
+    this.maxAlpha = 0.4;
+    this.alphaIndex = 0;
+    this.alphaChangeVelocity = 1.35; //x alpha unit per sec
     //popup
     this.popups = [
       new PopupCard(
         this.game,
         this.x,
         this.y,
-        200,
-        280,
+        180,
+        250,
         this.game.cardData.data0,
       ),
       new PopupCard(
         this.game,
         this.x,
         this.y,
-        200,
-        280,
+        180,
+        250,
         this.game.cardData.data1,
       ),
       new PopupCard(
         this.game,
         this.x,
         this.y,
-        200,
-        280,
+        180,
+        250,
         this.game.cardData.data2,
       ),
     ];
@@ -1187,19 +1204,26 @@ class Wheel {
       this.angularVelocity + this.friction * dt,
       0,
     );
+    //spin handel
     if (this.game.globalInputs.attackPressed && !this.spinHandeled) {
       this.spin();
       this.spinHandeled = true;
     }
+    //index calculation
     if (
       this.spinHandeled &&
-      this.angularVelocity == 0 &&
+      this.angularVelocity <= 0 &&
       !this.indexCalculated
     ) {
       this.indexCalculated = true;
       this.calculateIndex();
-      this.spinCoolDownTimer = 5;
+      this.spinCoolDownTimer = this.spinCoolDownTime;
+      if (!this.animatingWinnerSection) {
+        this.animatingWinnerSection = true;
+        this.animatingWinnerSectionTimer = this.animatingWinnerSectionTime;
+      }
     }
+    //spin cooldown handel
     if (this.indexCalculated) {
       this.spinCoolDownTimer -= dt;
       if (this.spinCoolDownTimer <= 0) {
@@ -1208,7 +1232,23 @@ class Wheel {
         this.spinCoolDownTimer = 0;
       }
     }
-    if (this.spinHandeled && this.indexCalculated) {
+    //winner section flash effect
+    if (this.animatingWinnerSection) {
+      this.animatingWinnerSectionTimer -= dt;
+      if(this.animatingWinnerSectionTimer<=0){
+        this.animatingWinnerSection = false;
+      }
+      if(this.brightening){
+        this.alphaIndex = Math.min(this.alphaIndex + this.alphaChangeVelocity*dt,this.maxAlpha);
+        if(this.alphaIndex>=this.maxAlpha)
+          this.brightening=false;
+      }else{
+        this.alphaIndex = Math.max(this.alphaIndex - this.alphaChangeVelocity*dt, 0);
+        if(this.alphaIndex<= 0)
+          this.brightening=true;
+      }
+    }
+    if (this.spinHandeled && this.indexCalculated &&!this.animatingWinnerSection) {
       this.popups[this.rPointerIndex % 3].update(dt);
       this.popups[this.lPointerIndex % 3].update(dt);
     }
@@ -1236,8 +1276,8 @@ class Wheel {
     ctx.save();
 
     ctx.translate(
-      this.x + this.game.camera.camOffsetX,
-      this.y + this.game.camera.camOffsetY,
+      this.x,
+      this.y,
     );
 
     // Shadow
@@ -1271,6 +1311,9 @@ class Wheel {
       ctx.lineWidth = 4;
       ctx.strokeStyle = "#222";
       ctx.stroke();
+    }
+    if (this.animatingWinnerSection) {
+      this.renderWinnerSectionEffect(ctx);
     }
 
     // Outer golden rim
@@ -1341,7 +1384,7 @@ class Wheel {
     this.renderPointer(ctx, this.lPointerAngle);
     this.renderPointer(ctx, this.rPointerAngle);
 
-    if (this.spinHandeled && this.indexCalculated) {
+    if (this.spinHandeled && this.indexCalculated && !this.animatingWinnerSection) {
       this.renderPopupCard(ctx, (this.rPointerIndex % 3) + 1, true);
       this.renderPopupCard(ctx, (this.lPointerIndex % 3) + 1, false);
     }
@@ -1351,8 +1394,8 @@ class Wheel {
     this.popups[index - 1].render(ctx, this.wheelColours[index - 1], isRight);
   }
   renderPointer(ctx, degree) {
-    const cx = this.x + this.game.camera.camOffsetX;
-    const cy = this.y + this.game.camera.camOffsetY;
+    const cx = this.x;
+    const cy = this.y;
 
     const pointerDist = this.rad + 12;
 
@@ -1410,6 +1453,54 @@ class Wheel {
     ctx.stroke();
 
     ctx.restore();
+  }
+
+  renderWinnerSectionEffect(ctx) {
+    ctx.fillStyle = `rgba(255,255,200,${this.alphaIndex})`;
+    //right winner section
+    //pointer part
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(
+      0,
+      0,
+      this.rad,
+      this.rPointerIndex * this.unitPartAngle,
+      this.rPointerIndex * this.unitPartAngle + this.unitPartAngle,
+    );
+    ctx.fill();
+    ctx.closePath();
+
+    //pointer bottom part
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    let startAngle =
+      ((this.rPointerIndex + 3) % this.partition) * this.unitPartAngle;
+    ctx.arc(0, 0, this.rad, startAngle, startAngle + this.unitPartAngle);
+    ctx.fill();
+    ctx.closePath();
+
+    //left winner section
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(
+      0,
+      0,
+      this.rad,
+      this.lPointerIndex * this.unitPartAngle,
+      this.lPointerIndex * this.unitPartAngle + this.unitPartAngle,
+    );
+    ctx.fill();
+    ctx.closePath();
+
+    //pointer bottom
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    startAngle =
+      ((this.lPointerIndex + 3) % this.partition) * this.unitPartAngle;
+    ctx.arc(0, 0, this.rad, startAngle, startAngle + this.unitPartAngle);
+    ctx.fill();
+    ctx.closePath();
   }
 }
 class Game {
@@ -1759,7 +1850,7 @@ class Game {
     };
     this.cardData = {
       data0: {
-        buffLabel: "Speed",
+        buffLabel: "nooo",
         buffDetail: "You gain 2X speed",
         debuffLabel: "Stronger Enemies",
         debuffDetail: "Enemy health get 2x more",
@@ -1794,7 +1885,7 @@ class Game {
     this.camera.update(dt);
 
     this.robber.update(dt);
-    this.wheel.update(dt);
+    //this.wheel.update(dt);
   }
   render(ctx) {
     ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
@@ -1811,7 +1902,7 @@ class Game {
     this.tileMap.render(ctx);
     this.camera.render(ctx);
     this.robber.render(ctx);
-    this.wheel.render(ctx);
+    //this.wheel.render(ctx);
 
     //rendering vCtx into ctx
     this.ctx.clearRect(0, 0, 250, 250);
