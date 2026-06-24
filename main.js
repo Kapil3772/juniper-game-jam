@@ -72,6 +72,104 @@ class GameImage {
     return (await Promise.all(promises)).filter(Boolean);
   }
 }
+class BloodParticle {
+  constructor(x, y, camera) {
+    this.x = x;
+    this.y = y;
+    this.camera = camera;
+
+    this.vx = (Math.random() - 0.5) * 300;
+    this.vy = (Math.random() - 0.5) * 250;
+
+    this.lifeTimer = 3;
+    this.size = 1 + Math.random() * 3;
+    this.w = this.size;
+    this.h = this.size;
+    this.dead = false;
+
+    this.onGround = false;
+    this.onGroundLifeTimer = 7;
+    this.decayTransitionAlpha = 1;
+    this.decayAlphaVelocity = 0.33; //1 unit per sec
+    this.decayTransitionStarted = false;
+  }
+
+  update(dt) {
+    this.lifeTimer -= dt;
+    if (this.lifeTimer <= 0 && !this.onGround) {
+      this.dead = true;
+    }
+
+    if (this.onGround) {
+      this.onGroundLifeTimer -= dt;
+      if (this.onGroundLifeTimer <= 0) {
+        this.decayTransitionStarted = true;
+      }
+    } else {
+      this.vy += 400 * dt; // gravity
+
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+    }
+    if (this.decayTransitionStarted) {
+      this.decayTransitionAlpha = Math.max(
+        this.decayTransitionAlpha - this.decayAlphaVelocity * dt,
+        0,
+      );
+      if (this.decayTransitionAlpha <= 0) {
+        this.dead = true;
+      }
+    }
+  }
+
+  render(ctx) {
+    ctx.fillStyle = "rgba(160, 0, 0," + this.decayTransitionAlpha + ")";
+    ctx.fillRect(
+      this.x + this.camera.camOffsetX,
+      this.y + this.camera.camOffsetY,
+      this.w,
+      this.h,
+    );
+  }
+}
+class ParticleManager {
+  constructor(game) {
+    this.game = game;
+    this.bloodParticles = [];
+  }
+  update(dt) {
+    for (const particle of this.bloodParticles) {
+      particle.update(dt);
+      let gx = Math.floor(particle.x / this.game.tileMap.tileW);
+      let gy = Math.floor(particle.y / this.game.tileMap.tileH);
+      if (!particle.onGround) {
+        if (this.game.tileMap.checkForPhysicsTile(gx, gy)) {
+          const tile = this.game.tileMap.getOngridTile(gx, gy);
+          particle.onGround = true;
+          particle.y = tile.top();
+          particle.x += (Math.random() - 0.5) * particle.w * 0.5;
+          particle.w = particle.w * (2 + Math.random());
+          particle.h = particle.h * (0.3 + Math.random() * 0.15);
+        }
+      }
+      if (particle.dead) {
+        this.removeBloodParticle(particle);
+      }
+    }
+  }
+  render(ctx) {
+    for (const particle of this.bloodParticles) {
+      particle.render(ctx);
+    }
+  }
+  addBloodParticle(x, y) {
+    this.bloodParticles.push(new BloodParticle(x, y, this.game.camera));
+  }
+  removeBloodParticle(particle) {
+    let id = this.bloodParticles.indexOf(particle);
+    this.bloodParticles.splice(id, 1);
+  }
+}
 
 const EntityType = {
   ROBBER: "ROBBER",
@@ -123,7 +221,33 @@ class Tile extends PhysicsRect {
     }
   }
 }
-
+class Decor extends PhysicsRect {
+  constructor(x, y, w, h, camera, img) {
+    super(x, y, w, h);
+    this.camera = camera;
+    this.img = img;
+  }
+  update(dt) {}
+  render(ctx) {
+    if (this.img != null) {
+      ctx.drawImage(
+        this.img,
+        this.x + this.camera.camOffsetX,
+        this.y + this.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
+    } else {
+      ctx.strokeStyle = "red";
+      ctx.strokeRect(
+        this.x + this.camera.camOffsetX,
+        this.y + this.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
+    }
+  }
+}
 class TileMap {
   constructor(game, tileW, tileH, camera, path = null) {
     this.game = game;
@@ -195,9 +319,6 @@ class TileMap {
     const offGridTilesData = data.offGridTiles || [];
     for (const tile of Object.values(onGridTilesData)) {
       const tileType = tile.type;
-      if(tileType == "decor"){
-        continue;
-      }
       const tileVariant = tile.variant;
       const img = this.game.tileVariantRegistry[tileType]?.[tileVariant];
       if (!img) {
@@ -209,13 +330,53 @@ class TileMap {
             "in the registry",
         );
       }
-      this.onGridTiles.set(
+      if (tileType == "decor") {
+        this.offGridTiles.set(
+          tile.pos[0] + "," + tile.pos[1],
+          new Decor(
+            tile.pos[0] * this.tileW,
+            tile.pos[1] * this.tileH,
+            img.width * 2,
+            img.height * 2,
+            this.game.camera,
+            img,
+          ),
+        );
+      } else {
+        this.onGridTiles.set(
+          tile.pos[0] + "," + tile.pos[1],
+          new Tile(
+            tile.pos[0] * this.tileW,
+            tile.pos[1] * this.tileH,
+            this.tileW,
+            this.tileH,
+            this.game.camera,
+            img,
+          ),
+        );
+      }
+    }
+    for (const tile of Object.values(offGridTilesData)) {
+      const tileType = tile.type;
+      const tileVariant = tile.variant;
+      const img = this.game.tileVariantRegistry[tileType]?.[tileVariant];
+      if (!img) {
+        console.log(
+          "Couldn't find tile " +
+            tileType +
+            "variant " +
+            tileVariant +
+            "in the registry",
+        );
+        continue;
+      }
+      this.offGridTiles.set(
         tile.pos[0] + "," + tile.pos[1],
-        new Tile(
-          tile.pos[0] * this.tileW,
-          tile.pos[1] * this.tileH,
-          this.tileW,
-          this.tileH,
+        new Decor(
+          tile.pos[0] * 2,
+          tile.pos[1] * 2,
+          img.width * 2,
+          img.height * 2,
           this.game.camera,
           img,
         ),
@@ -258,9 +419,14 @@ class TileMap {
   update(dt) {
     this.updateOnScreenTile();
   }
-  render(ctx) {
+  renderTiles(ctx) {
     for (const tile of this.onScreenTiles.values()) {
       tile.render(ctx);
+    }
+  }
+  renderDecors(ctx) {
+    for (const decor of this.offGridTiles.values()) {
+      decor.render(ctx);
     }
   }
   checkForPhysicsTile(gridx, gridy) {
@@ -288,6 +454,9 @@ class TileMap {
         }
       }
     }
+  }
+  getOngridTile(x, y) {
+    return this.onGridTiles.get(x + "," + y);
   }
 }
 class Animation {
@@ -402,6 +571,7 @@ class Bullet extends PhysicsRect {
     this.bulletAnimPlayer = new AnimationPlayer();
     this.bulletAnimPlayer.animation = this.bulletAnim;
     this.damageApplied = false;
+    this.baseDamage = 20;
   }
   update(dt) {
     this.x += this.xVelocity * dt * this.direction;
@@ -435,7 +605,14 @@ class BulletHandeler {
         if (bullet.intersects(this.entity.game.robber)) {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
-            this.entity.game.robber.takeDamage();
+            this.entity.game.robber.takeDamage(bullet.baseDamage);
+            for (let i = 0; i < 25; i++) {
+              this.entity.game.particleManager.addBloodParticle(
+                this.entity.game.robber.centerX(),
+                this.entity.game.robber.centerY() -
+                  this.entity.game.robber.h * 0.2,
+              );
+            }
           }
           this.removeBullet(bullet);
         }
@@ -488,9 +665,13 @@ class Player extends PhysicsRect {
     this.direction = null;
     this.xVelocity = 47; //px per second
     this.yVelocity = 0; //px per second
+    this.maxFallVelocity = 900; //px per sec
     this.jumpVelocity = -this.game.gravity / 2.2;
     this.runningSpeedFactor = 1;
     this.gunRecoilFactor = 1; // making movement speed slower
+
+    //health dependencies
+    this.baseHealth = 100;
 
     //visuals
     this.img = this.game.playerIdle[2];
@@ -557,6 +738,7 @@ class Player extends PhysicsRect {
     //gravity handel
     this.yVelocity += this.game.gravity * dt;
     this.y = this.y + this.yVelocity * dt;
+    this.yVelocity = Math.min(this.yVelocity, this.maxFallVelocity);
     this.tileCollisionHandeler.updatePhysicsTilesAround();
     this.tileCollisionHandeler.resolveVerticalCollision();
     //collision handel
@@ -906,6 +1088,42 @@ const CharacterAnimState = {
   ROBBER_FIRE: "ROBBER_FIRE",
   ROBBER_DEATH: "ROBBER_DEATH",
 };
+
+class HealthBarManager {
+  constructor(entity, baseHealth) {
+    this.entity = entity;
+    this.baseHealth = baseHealth;
+    this.healthBar = new Rect(0, 0, this.entity.w + 5, 3);
+    this.camera = this.entity.game.camera;
+    this.baseWidth = this.healthBar.w;
+  }
+  update(dt) {
+    this.healthBar.x = this.entity.centerX() - this.baseWidth / 2;
+    this.healthBar.y = this.entity.top() - this.healthBar.h - 5;
+    this.healthBar.w =
+      (this.baseWidth / this.baseHealth) * this.entity.currentHealth;
+  }
+  render(ctx) {
+    if (this.entity.takingDamage) {
+      ctx.fillStyle = "white";
+    } else {
+      ctx.fillStyle = "red";
+    }
+    ctx.fillRect(
+      this.healthBar.x + this.camera.camOffsetX,
+      this.healthBar.y + this.camera.camOffsetY,
+      this.healthBar.w,
+      this.healthBar.h,
+    );
+    ctx.strokeStyle = "black";
+    ctx.strokeRect(
+      this.healthBar.x + this.camera.camOffsetX,
+      this.healthBar.y + this.camera.camOffsetY,
+      this.baseWidth,
+      this.healthBar.h,
+    );
+  }
+}
 class Robber extends Character {
   constructor(game, x, y, w, h) {
     super(game, x, y, w, h);
@@ -918,6 +1136,11 @@ class Robber extends Character {
     this.checkGridY = 0;
     this.onAir = false;
     this.entityType = EntityType.ROBBER;
+    //health
+    let baseHealth = 100;
+    this.healthBarManager = new HealthBarManager(this, baseHealth);
+    this.currentHealth = this.healthBarManager.baseHealth;
+
     //timers
     this.movingTimer = 0;
     this.isIdle = false;
@@ -1046,6 +1269,7 @@ class Robber extends Character {
     }
     this.isMoving = this.direction != 0 ? true : false;
     this.bulletHandeler.update(dt);
+    this.healthBarManager.update(dt);
 
     //taking damage logic
     if (this.takingDamage) {
@@ -1096,9 +1320,10 @@ class Robber extends Character {
     this.gridX = Math.floor(this.centerX() / this.game.tileMap.tileW);
     this.gridy = Math.floor(this.centerY() / this.game.tileMap.tileH);
   }
-  takeDamage() {
+  takeDamage(damage) {
     this.takingDamage = true;
     this.takingDamageTimer = 0.2;
+    this.currentHealth = Math.max(this.currentHealth - damage, 0);
   }
   render(ctx) {
     super.render(ctx);
@@ -1126,6 +1351,7 @@ class Robber extends Character {
     // );
 
     this.bulletHandeler.render(ctx);
+    this.healthBarManager.render(ctx);
   }
 }
 
@@ -1711,6 +1937,7 @@ class Game {
       this.vCanvasW + 100,
       this.vCanvasH + 100,
     );
+    this.cameraSwapped = false;
     this.globalInputs = new GameInputs();
     this.bindInputs();
     this.playerW = 16;
@@ -1721,6 +1948,7 @@ class Game {
     this.gravity = 600; //px per sec square
     //entities
     this.player = new Player(this, 20, 20, this.playerW, this.playerH);
+    //camera
     this.camera = new Camera(
       this.player.centerX(),
       this.player.centerY(),
@@ -1737,6 +1965,9 @@ class Game {
       "assets/tileMaps/0.json",
     );
     this.robber = new Robber(this, 70, 20, this.playerW, this.playerH);
+
+    //Managers
+    this.particleManager = new ParticleManager(this);
 
     //wheel
     this.wheel = new Wheel(
@@ -1769,6 +2000,7 @@ class Game {
         this.player.attackHandeled = false;
       } else if (e.button === 2) {
         this.globalInputs.aimPressed = false;
+        this.cameraSwapped = false;
       }
     });
     window.addEventListener("keydown", (e) => {
@@ -1841,7 +2073,9 @@ class Game {
       robberFire,
       robberDeath,
       grass,
-      stone
+      stone,
+      decor,
+      largeDecor,
     ] = await Promise.all([
       this.loader.loadImagesFromFolder("assets/male/idle/", 5),
       this.loader.loadImagesFromFolder("assets/male/walk/", 8),
@@ -1866,6 +2100,8 @@ class Game {
       this.loader.loadImagesFromFolder("assets/robber/death/", 8),
       this.loader.loadImagesFromFolder("assets/tiles/grass/", 9),
       this.loader.loadImagesFromFolder("assets/tiles/stone/", 9),
+      this.loader.loadImagesFromFolder("assets/tiles/decor/", 4),
+      this.loader.loadImagesFromFolder("assets/tiles/largeDecor/", 3),
     ]);
     //images
     this.playerIdle = playerIdle;
@@ -2062,6 +2298,8 @@ class Game {
     this.tileVariantRegistry = {
       grass: grass,
       stone: stone,
+      decor: decor,
+      largeDecor: largeDecor,
     };
   }
   gameloop() {
@@ -2076,20 +2314,31 @@ class Game {
     requestAnimationFrame(() => this.gameloop());
   }
   update(dt) {
+    if (this.globalInputs.aimPressed && !this.cameraSwapped) {
+      this.cameraSwapped = true;
+      if (this.camera.entity.entityType == EntityType.ROBBER) {
+        this.camera.entity = this.player;
+      } else {
+        this.camera.entity = this.robber;
+      }
+    }
     this.player.update(dt);
     this.camera.update(dt);
     this.tileMap.update(dt);
     this.robber.update(dt);
+    this.particleManager.update(dt);
     //this.wheel.update(dt);
   }
   render(ctx) {
     ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, this.vCanvasW, this.vCanvasH);
-    this.player.render(ctx);
-    this.tileMap.render(ctx);
+    this.tileMap.renderDecors(ctx);
+    this.tileMap.renderTiles(ctx);
     this.camera.render(ctx);
     this.robber.render(ctx);
+    this.player.render(ctx);
+    this.particleManager.render(ctx);
     //this.wheel.render(ctx);
 
     //rendering vCtx into ctx
