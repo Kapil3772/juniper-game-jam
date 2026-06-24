@@ -1,0 +1,319 @@
+{
+  "tileW": 32,
+  "tileH" : 32,
+  "onGridTiles": [
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 5
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 3
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 1
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": -1
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": -3
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 15
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 17
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 19
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 21
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 23
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 25
+    },
+    {
+      "type": "grass",
+      "variant": 5,
+      "gridX": 11,
+      "gridY": 27
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": -3
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": -1
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 1
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 3
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 5
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 15
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 17
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 19
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 21
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 23
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 25
+    },
+    {
+      "type": "grass",
+      "variant": 6,
+      "gridX": 12,
+      "gridY": 27
+    },
+    {
+      "type": "grass",
+      "variant": 17,
+      "gridX": 12,
+      "gridY": 14
+    },
+    {
+      "type": "grass",
+      "variant": 16,
+      "gridX": 11,
+      "gridY": 14
+    },
+    {
+      "type": "grass",
+      "variant": 16,
+      "gridX": 11,
+      "gridY": -4
+    },
+    {
+      "type": "grass",
+      "variant": 17,
+      "gridX": 12,
+      "gridY": -4
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 4
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 2
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 0
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": -2
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 16
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 18
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 20
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 22
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 24
+    },
+    {
+      "type": "grass",
+      "variant": 37,
+      "gridX": 11,
+      "gridY": 26
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 16
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 18
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 22
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 26
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": -2
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 4
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 0
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 2
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 20
+    },
+    {
+      "type": "grass",
+      "variant": 38,
+      "gridX": 12,
+      "gridY": 24
+    },
+    {
+      "type": "grass",
+      "variant": 12,
+      "gridX": 11,
+      "gridY": 28
+    },
+    {
+      "type": "grass",
+      "variant": 12,
+      "gridX": 11,
+      "gridY": 6
+    },
+    {
+      "type": "grass",
+      "variant": 13,
+      "gridX": 12,
+      "gridY": 28
+    },
+    {
+      "type": "grass",
+      "variant": 13,
+      "gridX": 12,
+      "gridY": 6
+    }
+  ],
+  "offGridTiles": []
+}

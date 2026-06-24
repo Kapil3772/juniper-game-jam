@@ -47,6 +47,9 @@ class PhysicsRect extends Rect {
     );
   }
 }
+class GameSound {
+  loadSound(path) {}
+}
 class GameImage {
   loadImage(path) {
     return new Promise((resolve, reject) => {
@@ -69,6 +72,7 @@ class GameImage {
     return (await Promise.all(promises)).filter(Boolean);
   }
 }
+
 const EntityType = {
   ROBBER: "ROBBER",
   PLAYER: "PLAYER",
@@ -100,38 +104,190 @@ class Tile extends PhysicsRect {
   }
   update(dt) {}
   render(ctx) {
-    ctx.strokeStyle = "cyan";
-    ctx.strokeRect(
-      this.x + this.camera.camOffsetX,
-      this.y + this.camera.camOffsetY,
-      this.w,
-      this.h,
-    );
+    if (this.img != null) {
+      ctx.drawImage(
+        this.img,
+        this.x + this.camera.camOffsetX,
+        this.y + this.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
+    } else {
+      ctx.strokeStyle = "cyan";
+      ctx.strokeRect(
+        this.x + this.camera.camOffsetX,
+        this.y + this.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
+    }
   }
 }
 
 class TileMap {
-  constructor(tileW, tileH, camera) {
+  constructor(game, tileW, tileH, camera, path = null) {
+    this.game = game;
     this.camera = camera;
     this.tileW = tileW;
     this.tileH = tileH;
-    this.ongridTiles = new Map();
+    this.ongridTilesData = null;
+    this.offGridTilesData = null;
+    this.onGridTiles = new Map();
     this.offGridTiles = new Map();
-    for (let i = 0; i < 20; i++) {
-      this.ongridTiles.set(
-        "" + i + ",6",
-        new Tile(0 + i * 32, 6 * 32, 32, 32, this.camera, null),
+    // for (let i = 0; i < 20; i++) {
+    //   this.onGridTiles.set(
+    //     "" + i + ",6",
+    //     new Tile(0 + i * 32, 6 * 32, 32, 32, this.camera, null),
+    //   );
+    // }
+    this.onScreenTiles = [];
+    this.visibleLeft = 0;
+    this.visibleRight = 0;
+    this.visibleTop = 0;
+    this.visibleBottom = 0;
+
+    if (path != null) {
+      //this.loadTileMap(path);
+      this.loadTileMap2(path);
+    }
+  }
+  async loadTileMap(path) {
+    const res = await fetch(path);
+    const data = await res.json();
+    this.tileW = data.tileW;
+    this.tileH = data.tileH;
+    const onGridTilesData = data.onGridTiles;
+    const offGridTilesData = data.offGridTiles || [];
+    for (const tile of onGridTilesData) {
+      const tileType = tile.type;
+      const tileVariant = tile.variant;
+      const img = this.game.tileVariantRegistry[tileType][tileVariant];
+      if (!img) {
+        console.log(
+          "Couldn't find tile " +
+            tileType +
+            "variant " +
+            tileVariant +
+            "in the registry",
+        );
+      }
+      this.onGridTiles.set(
+        tile.gridX + "," + tile.gridY,
+        new Tile(
+          tile.gridX * this.tileW,
+          tile.gridY * this.tileH,
+          this.tileW,
+          this.tileH,
+          this.game.camera,
+          img,
+        ),
       );
     }
-    this.onScreenTiles = [];
+    //this.tileSize = data.tile_size || 16;
+  }
+  async loadTileMap2(path) {
+    const res = await fetch(path);
+    const data = await res.json();
+    console.log(data);
+    this.tileW = data.tileW;
+    this.tileH = data.tileH;
+    const onGridTilesData = data.tileMap;
+    const offGridTilesData = data.offGridTiles || [];
+    for (const tile of Object.values(onGridTilesData)) {
+      const tileType = tile.type;
+      if(tileType == "decor"){
+        continue;
+      }
+      const tileVariant = tile.variant;
+      const img = this.game.tileVariantRegistry[tileType]?.[tileVariant];
+      if (!img) {
+        console.log(
+          "Couldn't find tile " +
+            tileType +
+            "variant " +
+            tileVariant +
+            "in the registry",
+        );
+      }
+      this.onGridTiles.set(
+        tile.pos[0] + "," + tile.pos[1],
+        new Tile(
+          tile.pos[0] * this.tileW,
+          tile.pos[1] * this.tileH,
+          this.tileW,
+          this.tileH,
+          this.game.camera,
+          img,
+        ),
+      );
+    }
+    //this.tileSize = data.tile_size || 16;
+  }
+  extract(idPair, keep = false) {
+    const matches = [];
+
+    this.offGridTiles = this.offGridTiles.filter((tile) => {
+      if (
+        idPair.some((pair) => pair[0] === tile.type && pair[1] === tile.variant)
+      ) {
+        matches.push({ ...tile, pos: [tile.pos[0] * 2, tile.pos[1] * 2] });
+        return keep; // keep = false → remove it
+      }
+      return true; // keep tiles that don't match
+    });
+
+    for (let loc in this.tilemap) {
+      const tile = this.tilemap[loc];
+      if (
+        idPair.some((pair) => pair[0] === tile.type && pair[1] === tile.variant)
+      ) {
+        const copiedTile = { ...tile, pos: [...tile.pos] };
+        copiedTile.pos[0] *= this.tileSize;
+        copiedTile.pos[1] *= this.tileSize;
+        matches.push(copiedTile);
+
+        if (!keep) {
+          delete this.tilemap[loc];
+        }
+      }
+    }
+
+    return matches;
+  }
+
+  update(dt) {
+    this.updateOnScreenTile();
   }
   render(ctx) {
-    for (const tile of this.ongridTiles.values()) {
+    for (const tile of this.onScreenTiles.values()) {
       tile.render(ctx);
     }
   }
   checkForPhysicsTile(gridx, gridy) {
-    return this.ongridTiles.has(gridx + "," + gridy);
+    return this.onGridTiles.has(gridx + "," + gridy);
+  }
+  updateOnScreenTile() {
+    this.onScreenTiles = [];
+    this.visibleLeft = Math.floor(
+      (this.camera.x - this.game.vCanvasW / 2) / this.tileW,
+    );
+    this.visibleRight = Math.ceil(
+      (this.camera.x + this.game.vCanvasW / 2) / this.tileW,
+    );
+    this.visibleTop = Math.floor(
+      (this.camera.y - this.game.vCanvasH / 2) / this.tileH,
+    );
+    this.visibleBottom = Math.ceil(
+      (this.camera.y + this.game.vCanvasH / 2) / this.tileH,
+    );
+    for (let i = this.visibleLeft; i <= this.visibleRight; i++) {
+      for (let j = this.visibleTop; j <= this.visibleBottom; j++) {
+        const tile = this.onGridTiles.get(`${i},${j}`);
+        if (tile) {
+          this.onScreenTiles.push(tile);
+        }
+      }
+    }
   }
 }
 class Animation {
@@ -227,7 +383,7 @@ class TileCollisionHandeler {
     let gridBottom = Math.ceil(this.entity.bottom() / this.tileH);
     for (let i = gridLeft; i <= gridRight; i++) {
       for (let j = gridTop; j <= gridBottom; j++) {
-        const tile = this.entity.game.tileMap.ongridTiles.get(`${i},${j}`);
+        const tile = this.entity.game.tileMap.onGridTiles.get(`${i},${j}`);
         if (tile != null) {
           this.physicsRectAround.push(tile);
         }
@@ -406,10 +562,10 @@ class Player extends PhysicsRect {
     //collision handel
 
     //bottom collision
-    if (this.bottom() > this.game.vCanvasH) {
-      this.y = this.game.vCanvasH - this.h;
-      this.yVelocity = 0;
-    }
+    // if (this.bottom() > this.game.vCanvasH) {
+    //   this.y = this.game.vCanvasH - this.h;
+    //   this.yVelocity = 0;
+    // }
     //jump
     this.onAir = this.yVelocity != 0 ? true : false;
     this.isJumping = this.yVelocity < 0 ? true : false;
@@ -946,13 +1102,14 @@ class Robber extends Character {
   }
   render(ctx) {
     super.render(ctx);
-    ctx.fillStyle = "yellow";
-    ctx.fillRect(
-      this.checkGridX * 32 + this.game.camera.camOffsetX,
-      this.checkGridY * 32 + this.game.camera.camOffsetY,
-      32,
-      32,
-    );
+    //checking tile render
+    // ctx.fillStyle = "yellow";
+    // ctx.fillRect(
+    //   this.checkGridX * 32 + this.game.camera.camOffsetX,
+    //   this.checkGridY * 32 + this.game.camera.camOffsetY,
+    //   32,
+    //   32,
+    // );
     ctx.strokeRect(
       this.x + this.game.camera.camOffsetX,
       this.y + this.game.camera.camOffsetY,
@@ -960,13 +1117,13 @@ class Robber extends Character {
       this.h,
     );
     //detect rect
-    ctx.strokeStyle = "red";
-    ctx.strokeRect(
-      this.detectRect.x + this.game.camera.camOffsetX,
-      this.detectRect.y + this.game.camera.camOffsetY,
-      this.detectRect.w,
-      this.detectRect.h,
-    );
+    // ctx.strokeStyle = "red";
+    // ctx.strokeRect(
+    //   this.detectRect.x + this.game.camera.camOffsetX,
+    //   this.detectRect.y + this.game.camera.camOffsetY,
+    //   this.detectRect.w,
+    //   this.detectRect.h,
+    // );
 
     this.bulletHandeler.render(ctx);
   }
@@ -1167,9 +1324,14 @@ class Wheel {
     this.animatingWinnerSectionTimer = 0;
     this.animatingWinnerSectionTime = 2; //sec
     this.brightening = true;
-    this.maxAlpha = 0.4;
+    this.maxAlpha = 0.5;
     this.alphaIndex = 0;
     this.alphaChangeVelocity = 1.35; //x alpha unit per sec
+    //transition
+    this.transitionProgress = 0;
+    this.inTransition = true;
+    this.baseTransitionDisplacement = 300;
+    this.slideOffset = 0;
     //popup
     this.popups = [
       new PopupCard(
@@ -1198,7 +1360,17 @@ class Wheel {
       ),
     ];
   }
+  easeOut(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
   update(dt) {
+    if (this.inTransition) {
+      this.transitionProgress = Math.min(1, this.transitionProgress + dt * 0.7);
+      const eased = this.easeOut(this.transitionProgress);
+      this.slideOffset = (1 - eased) * this.baseTransitionDisplacement;
+    } else {
+      this.slideOffset = 0;
+    }
     this.angle += this.angularVelocity * dt;
     this.angularVelocity = Math.max(
       this.angularVelocity + this.friction * dt,
@@ -1235,20 +1407,28 @@ class Wheel {
     //winner section flash effect
     if (this.animatingWinnerSection) {
       this.animatingWinnerSectionTimer -= dt;
-      if(this.animatingWinnerSectionTimer<=0){
+      if (this.animatingWinnerSectionTimer <= 0) {
         this.animatingWinnerSection = false;
       }
-      if(this.brightening){
-        this.alphaIndex = Math.min(this.alphaIndex + this.alphaChangeVelocity*dt,this.maxAlpha);
-        if(this.alphaIndex>=this.maxAlpha)
-          this.brightening=false;
-      }else{
-        this.alphaIndex = Math.max(this.alphaIndex - this.alphaChangeVelocity*dt, 0);
-        if(this.alphaIndex<= 0)
-          this.brightening=true;
+      if (this.brightening) {
+        this.alphaIndex = Math.min(
+          this.alphaIndex + this.alphaChangeVelocity * dt,
+          this.maxAlpha,
+        );
+        if (this.alphaIndex >= this.maxAlpha) this.brightening = false;
+      } else {
+        this.alphaIndex = Math.max(
+          this.alphaIndex - this.alphaChangeVelocity * dt,
+          0,
+        );
+        if (this.alphaIndex <= 0) this.brightening = true;
       }
     }
-    if (this.spinHandeled && this.indexCalculated &&!this.animatingWinnerSection) {
+    if (
+      this.spinHandeled &&
+      this.indexCalculated &&
+      !this.animatingWinnerSection
+    ) {
       this.popups[this.rPointerIndex % 3].update(dt);
       this.popups[this.lPointerIndex % 3].update(dt);
     }
@@ -1275,10 +1455,7 @@ class Wheel {
   render(ctx) {
     ctx.save();
 
-    ctx.translate(
-      this.x,
-      this.y,
-    );
+    ctx.translate(this.x, this.y + this.slideOffset);
 
     // Shadow
     ctx.shadowColor = "rgba(0,0,0,0.4)";
@@ -1384,7 +1561,11 @@ class Wheel {
     this.renderPointer(ctx, this.lPointerAngle);
     this.renderPointer(ctx, this.rPointerAngle);
 
-    if (this.spinHandeled && this.indexCalculated && !this.animatingWinnerSection) {
+    if (
+      this.spinHandeled &&
+      this.indexCalculated &&
+      !this.animatingWinnerSection
+    ) {
       this.renderPopupCard(ctx, (this.rPointerIndex % 3) + 1, true);
       this.renderPopupCard(ctx, (this.lPointerIndex % 3) + 1, false);
     }
@@ -1395,7 +1576,7 @@ class Wheel {
   }
   renderPointer(ctx, degree) {
     const cx = this.x;
-    const cy = this.y;
+    const cy = this.y + this.slideOffset;
 
     const pointerDist = this.rad + 12;
 
@@ -1456,7 +1637,7 @@ class Wheel {
   }
 
   renderWinnerSectionEffect(ctx) {
-    ctx.fillStyle = `rgba(255,255,200,${this.alphaIndex})`;
+    ctx.fillStyle = `rgba(255,255,255,${this.alphaIndex})`;
     //right winner section
     //pointer part
     ctx.beginPath();
@@ -1548,7 +1729,13 @@ class Game {
       this,
       this.player,
     );
-    this.tileMap = new TileMap(32, 32, this.camera);
+    this.tileMap = new TileMap(
+      this,
+      32,
+      32,
+      this.camera,
+      "assets/tileMaps/0.json",
+    );
     this.robber = new Robber(this, 70, 20, this.playerW, this.playerH);
 
     //wheel
@@ -1653,6 +1840,8 @@ class Game {
       robberRun,
       robberFire,
       robberDeath,
+      grass,
+      stone
     ] = await Promise.all([
       this.loader.loadImagesFromFolder("assets/male/idle/", 5),
       this.loader.loadImagesFromFolder("assets/male/walk/", 8),
@@ -1675,6 +1864,8 @@ class Game {
       this.loader.loadImagesFromFolder("assets/robber/run/", 8),
       this.loader.loadImagesFromFolder("assets/robber/fire/", 5),
       this.loader.loadImagesFromFolder("assets/robber/death/", 8),
+      this.loader.loadImagesFromFolder("assets/tiles/grass/", 9),
+      this.loader.loadImagesFromFolder("assets/tiles/stone/", 9),
     ]);
     //images
     this.playerIdle = playerIdle;
@@ -1868,6 +2059,10 @@ class Game {
         debuffDetail: "Enemy health get 2x more",
       },
     };
+    this.tileVariantRegistry = {
+      grass: grass,
+      stone: stone,
+    };
   }
   gameloop() {
     //delta time calculation
@@ -1883,7 +2078,7 @@ class Game {
   update(dt) {
     this.player.update(dt);
     this.camera.update(dt);
-
+    this.tileMap.update(dt);
     this.robber.update(dt);
     //this.wheel.update(dt);
   }
@@ -1891,13 +2086,6 @@ class Game {
     ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, this.vCanvasW, this.vCanvasH);
-    ctx.strokeStyle = "white";
-    ctx.strokeRect(
-      0 + this.camera.camOffsetX,
-      this.camera.camOffsetY,
-      this.vCanvasW,
-      this.vCanvasH,
-    );
     this.player.render(ctx);
     this.tileMap.render(ctx);
     this.camera.render(ctx);
