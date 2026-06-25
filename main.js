@@ -24,7 +24,6 @@ class Rect {
     return this.y + this.h / 2.0;
   }
 }
-
 class PhysicsRect extends Rect {
   constructor(x, y, w, h) {
     super(x, y, w, h);
@@ -82,8 +81,9 @@ class ProgressBar extends Rect {
     this.progressColor = "green";
     this.maxProgress = 1;
     this.increasedProgress = this.baseProgress;
-    this.progressVelocity = this.maxProgress * 0.2; // x width completes per sec
+    this.progressVelocity = this.maxProgress; // x width completes per sec
     this.isDone = false;
+    this.progressInfo = null;
   }
   update(dt) {
     this.currentProgress += this.progressVelocity * dt;
@@ -91,7 +91,7 @@ class ProgressBar extends Rect {
       this.currentProgress,
       this.increasedProgress,
     );
-    if(this.currentProgress == this.maxProgress && !this.isDone){
+    if (this.currentProgress == this.maxProgress && !this.isDone) {
       this.isDone = true;
     }
   }
@@ -101,10 +101,18 @@ class ProgressBar extends Rect {
     ctx.fillRect(this.x, this.y, fillW, this.h);
     ctx.strokeStyle = "black";
     ctx.strokeRect(this.x, this.y, this.w, this.h);
+    // info render
+    if (this.progressInfo != null) {
+      ctx.fillStyle = "white";
+      ctx.font = "20 px bold";
+      ctx.fillText(this.progressInfo, this.x, this.y - 10);
+    }
   }
   incrementProgress(progress) {
     this.increasedProgress = Math.min(progress, this.maxProgress);
-
+  }
+  changeProgressInfo(info) {
+    this.progressInfo = info;
   }
 }
 class BloodParticle {
@@ -175,11 +183,11 @@ class ParticleManager {
   update(dt) {
     for (const particle of this.bloodParticles) {
       particle.update(dt);
-      let gx = Math.floor(particle.x / this.game.tileMap.tileW);
-      let gy = Math.floor(particle.y / this.game.tileMap.tileH);
+      let gx = Math.floor(particle.x / this.game.currentMode.tileMap.tileW);
+      let gy = Math.floor(particle.y / this.game.currentMode.tileMap.tileH);
       if (!particle.onGround) {
-        if (this.game.tileMap.checkForPhysicsTile(gx, gy)) {
-          const tile = this.game.tileMap.getOngridTile(gx, gy);
+        if (this.game.currentMode.tileMap.checkForPhysicsTile(gx, gy)) {
+          const tile = this.game.currentMode.tileMap.getOngridTile(gx, gy);
           particle.onGround = true;
           particle.y = tile.top();
           particle.x += (Math.random() - 0.5) * particle.w * 0.5;
@@ -198,7 +206,9 @@ class ParticleManager {
     }
   }
   addBloodParticle(x, y) {
-    this.bloodParticles.push(new BloodParticle(x, y, this.game.camera));
+    this.bloodParticles.push(
+      new BloodParticle(x, y, this.game.currentMode.camera),
+    );
   }
   removeBloodParticle(particle) {
     let id = this.bloodParticles.indexOf(particle);
@@ -210,6 +220,7 @@ const EntityType = {
   ROBBER: "ROBBER",
   PLAYER: "PLAYER",
 };
+
 const PlayerAnimState = {
   IDLE: "IDLE",
   WALK: "WALK",
@@ -337,7 +348,7 @@ class TileMap {
           tile.gridY * this.tileH,
           this.tileW,
           this.tileH,
-          this.game.camera,
+          this.game.currentMode.camera,
           img,
         ),
       );
@@ -347,11 +358,13 @@ class TileMap {
   async loadTileMap2(path) {
     const res = await fetch(path);
     const data = await res.json();
-    console.log(data);
+
     this.tileW = data.tileW;
     this.tileH = data.tileH;
     const onGridTilesData = data.tileMap;
     const offGridTilesData = data.offGridTiles || [];
+    const spawnners = data.spawnners;
+
     for (const tile of Object.values(onGridTilesData)) {
       const tileType = tile.type;
       const tileVariant = tile.variant;
@@ -373,7 +386,7 @@ class TileMap {
             tile.pos[1] * this.tileH,
             img.width * 2,
             img.height * 2,
-            this.game.camera,
+            this.game.currentMode.camera,
             img,
           ),
         );
@@ -385,7 +398,7 @@ class TileMap {
             tile.pos[1] * this.tileH,
             this.tileW,
             this.tileH,
-            this.game.camera,
+            this.game.currentMode.camera,
             img,
           ),
         );
@@ -412,10 +425,23 @@ class TileMap {
           tile.pos[1] * 2,
           img.width * 2,
           img.height * 2,
-          this.game.camera,
+          this.game.currentMode.camera,
           img,
         ),
       );
+    }
+    for (const entity of Object.values(spawnners)) {
+      if (entity.type == "robber") {
+        this.game.currentMode.enemies.push(
+          new Robber(
+            this.game,
+            entity.pos[0]*2,
+            entity.pos[1]*2,
+            this.game.currentMode.playerW,
+            this.game.currentMode.playerH,
+          ),
+        );
+      }
     }
     //this.tileSize = data.tile_size || 16;
   }
@@ -483,7 +509,7 @@ class TileMap {
     );
     for (let i = this.visibleLeft; i <= this.visibleRight; i++) {
       for (let j = this.visibleTop; j <= this.visibleBottom; j++) {
-        const tile = this.onGridTiles.get(`${i},${j}`);
+        const tile = this.onGridTiles.get(i+","+j);
         if (tile) {
           this.onScreenTiles.push(tile);
         }
@@ -587,7 +613,9 @@ class TileCollisionHandeler {
     let gridBottom = Math.ceil(this.entity.bottom() / this.tileH);
     for (let i = gridLeft; i <= gridRight; i++) {
       for (let j = gridTop; j <= gridBottom; j++) {
-        const tile = this.entity.game.tileMap.onGridTiles.get(`${i},${j}`);
+        const tile = this.entity.game.currentMode.tileMap.onGridTiles.get(
+          `${i},${j}`,
+        );
         if (tile != null) {
           this.physicsRectAround.push(tile);
         }
@@ -616,8 +644,12 @@ class Bullet extends PhysicsRect {
     const img = this.bulletAnimPlayer.getCurrentFrame();
     ctx.drawImage(
       img,
-      this.x + this.bulletAnim.xOffset + this.entity.game.camera.camOffsetX,
-      this.y + this.bulletAnim.yOffset + this.entity.game.camera.camOffsetY,
+      this.x +
+        this.bulletAnim.xOffset +
+        this.entity.game.currentMode.camera.camOffsetX,
+      this.y +
+        this.bulletAnim.yOffset +
+        this.entity.game.currentMode.camera.camOffsetY,
     );
     //ctx.strokeStyle = "red";
     //ctx.strokeRect(this.x,this.y,this.w,this.h);
@@ -637,30 +669,30 @@ class BulletHandeler {
         this.removeBullet(bullet);
       }
       if (this.entity.entityType == EntityType.PLAYER) {
-        if (bullet.intersects(this.entity.game.robber)) {
+        if (bullet.intersects(this.entity.game.currentMode.robber)) {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
-            this.entity.game.robber.takeDamage(bullet.baseDamage);
+            this.entity.game.currentMode.robber.takeDamage(bullet.baseDamage);
             for (let i = 0; i < 25; i++) {
-              this.entity.game.particleManager.addBloodParticle(
-                this.entity.game.robber.centerX(),
-                this.entity.game.robber.centerY() -
-                  this.entity.game.robber.h * 0.2,
+              this.entity.game.currentMode.particleManager.addBloodParticle(
+                this.entity.game.currentMode.robber.centerX(),
+                this.entity.game.currentMode.robber.centerY() -
+                  this.entity.game.currentMode.robber.h * 0.2,
               );
             }
           }
           this.removeBullet(bullet);
         }
       } else if (this.entity.entityType == EntityType.ROBBER) {
-        if (bullet.intersects(this.entity.game.player)) {
+        if (bullet.intersects(this.entity.game.currentMode.player)) {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
-            this.entity.game.player.takeDamage();
+            this.entity.game.currentMode.player.takeDamage();
             for (let i = 0; i < 25; i++) {
-              this.entity.game.particleManager.addBloodParticle(
-                this.entity.game.player.centerX(),
-                this.entity.game.player.centerY() -
-                  this.entity.game.player.h * 0.2,
+              this.entity.game.currentMode.particleManager.addBloodParticle(
+                this.entity.game.currentMode.player.centerX(),
+                this.entity.game.currentMode.player.centerY() -
+                  this.entity.game.currentMode.player.h * 0.2,
               );
             }
           }
@@ -708,7 +740,7 @@ class Player extends PhysicsRect {
     this.xVelocity = 47; //px per second
     this.yVelocity = 0; //px per second
     this.maxFallVelocity = 900; //px per sec
-    this.jumpVelocity = -this.game.gravity / 2.2;
+    this.jumpVelocity = -this.game.currentMode.gravity / 2.2;
     this.runningSpeedFactor = 1;
     this.gunRecoilFactor = 1; // making movement speed slower
 
@@ -716,11 +748,12 @@ class Player extends PhysicsRect {
     this.baseHealth = 100;
 
     //visuals
-    this.img = this.game.playerIdle[2];
+    this.img = null;
     this.currentAnimState = PlayerAnimState.IDLE;
     this.newAnimState = null;
     this.animationPlayer = new AnimationPlayer();
     this.animationPlayer.setAnimation(this.game.assets.playerIdle);
+    console.log(this.animationPlayer.animation);
     this.flip = false;
 
     //special effects
@@ -778,7 +811,7 @@ class Player extends PhysicsRect {
     this.tileCollisionHandeler.updatePhysicsTilesAround();
     this.tileCollisionHandeler.resolveHorizontalCollision();
     //gravity handel
-    this.yVelocity += this.game.gravity * dt;
+    this.yVelocity += this.game.currentMode.gravity * dt;
     this.y = this.y + this.yVelocity * dt;
     this.yVelocity = Math.min(this.yVelocity, this.maxFallVelocity);
     this.tileCollisionHandeler.updatePhysicsTilesAround();
@@ -979,11 +1012,11 @@ class Player extends PhysicsRect {
     const drawX =
       this.x +
       this.animationPlayer.animation.xOffset +
-      this.game.camera.camOffsetX;
+      this.game.currentMode.camera.camOffsetX;
     const drawY =
       this.y +
       this.animationPlayer.animation.yOffset +
-      this.game.camera.camOffsetY;
+      this.game.currentMode.camera.camOffsetY;
     if (this.img != null) {
       if (this.takingDamage) {
         if (this.flip) {
@@ -1007,8 +1040,8 @@ class Player extends PhysicsRect {
       //Actual Physical debug rect
       ctx.strokeStyle = "cyan";
       ctx.strokeRect(
-        this.x + this.game.camera.camOffsetX,
-        this.y + this.game.camera.camOffsetY,
+        this.x + this.game.currentMode.camera.camOffsetX,
+        this.y + this.game.currentMode.camera.camOffsetY,
         this.w,
         this.h,
       );
@@ -1019,10 +1052,6 @@ class Player extends PhysicsRect {
       ctx.fillStyle = "cyan";
       ctx.fillRect(this.x, this.y, this.w, this.h);
     }
-    // ctx.fillStyle = "red";
-    // for(const tile of this.tileCollisionHandeler.physicsRectAround){
-    //     ctx.fillRect(tile.x,tile.y,tile.w,tile.h);
-    // }
     this.bulletHandeler.render(ctx);
   }
   renderHurtFlash(ctx, img, x, y, flashColor) {
@@ -1062,7 +1091,7 @@ class Character extends PhysicsRect {
     this.direction = 0;
   }
   applyGravity(dt) {
-    this.yVelocity += this.game.gravity * dt;
+    this.yVelocity += this.game.currentMode.gravity * dt;
     this.y = this.y + this.yVelocity * dt;
   }
   render(ctx) {
@@ -1070,11 +1099,11 @@ class Character extends PhysicsRect {
     const drawX =
       this.x +
       this.animationPlayer.animation.xOffset +
-      this.game.camera.camOffsetX;
+      this.game.currentMode.camera.camOffsetX;
     const drawY =
       this.y +
       this.animationPlayer.animation.yOffset +
-      this.game.camera.camOffsetY;
+      this.game.currentMode.camera.camOffsetY;
     if (this.img != null) {
       if (this.takingDamage) {
         if (this.flip) {
@@ -1098,8 +1127,8 @@ class Character extends PhysicsRect {
       //Actual Physical debug rect
       ctx.strokeStyle = "cyan";
       ctx.strokeRect(
-        this.x + this.game.camera.camOffsetX,
-        this.y + this.game.camera.camOffsetY,
+        this.x + this.game.currentMode.camera.camOffsetX,
+        this.y + this.game.currentMode.camera.camOffsetY,
         this.w,
         this.h,
       );
@@ -1136,7 +1165,7 @@ class HealthBarManager {
     this.entity = entity;
     this.baseHealth = baseHealth;
     this.healthBar = new Rect(0, 0, this.entity.w + 5, 3);
-    this.camera = this.entity.game.camera;
+    this.camera = this.entity.game.currentMode.camera;
     this.baseWidth = this.healthBar.w;
   }
   update(dt) {
@@ -1190,7 +1219,8 @@ class Robber extends Character {
 
     //attack dependencies
     this.playerDetectableRadius = 16; //14 grid block
-    let detectW = this.game.tileMap.tileW * this.playerDetectableRadius;
+    //temp code
+    let detectW = 32 * this.playerDetectableRadius;
     this.detectRect = new Rect(this.x, this.y, detectW, this.h);
     this.playerDetected = false;
     this.isPatrolling = true;
@@ -1217,12 +1247,17 @@ class Robber extends Character {
     this.x += this.xVelocity * this.direction * dt;
 
     this.onAir = this.yVelocity != 0 ? true : false;
-    this.checkGridX = Math.floor(this.x / this.game.tileMap.tileW);
+    this.checkGridX = Math.floor(this.x / this.game.currentMode.tileMap.tileW);
     this.checkGridX += this.flip ? 1 : -1;
-    this.checkGridY = Math.ceil(this.bottom() / this.game.tileMap.tileH);
+    this.checkGridY = Math.ceil(
+      this.bottom() / this.game.currentMode.tileMap.tileH,
+    );
     if (!this.onAir) {
       if (
-        !this.game.tileMap.checkForPhysicsTile(this.checkGridX, this.checkGridY)
+        !this.game.currentMode.tileMap.checkForPhysicsTile(
+          this.checkGridX,
+          this.checkGridY,
+        )
       ) {
         this.flip = !this.flip;
         this.direction = this.flip ? 1 : -1;
@@ -1258,7 +1293,7 @@ class Robber extends Character {
     this.detectRect.y = this.y;
 
     //Shooting logic
-    if (this.game.player.intersects(this.detectRect)) {
+    if (this.game.currentMode.player.intersects(this.detectRect)) {
       this.playerDetected = true;
       this.isPatrolling = false;
     } else {
@@ -1286,7 +1321,9 @@ class Robber extends Character {
     if (this.playerDetected && !this.runningToReload) {
       this.direction = 0;
       this.flip =
-        this.centerX() - this.game.player.centerX() <= 0 ? true : false;
+        this.centerX() - this.game.currentMode.player.centerX() <= 0
+          ? true
+          : false;
       if (!this.fireHandeled && !this.runningToReload) {
         this.fireHandeled = true;
         this.isFiring = true;
@@ -1362,8 +1399,12 @@ class Robber extends Character {
     }
   }
   updateGridPos() {
-    this.gridX = Math.floor(this.centerX() / this.game.tileMap.tileW);
-    this.gridy = Math.floor(this.centerY() / this.game.tileMap.tileH);
+    this.gridX = Math.floor(
+      this.centerX() / this.game.currentMode.tileMap.tileW,
+    );
+    this.gridy = Math.floor(
+      this.centerY() / this.game.currentMode.tileMap.tileH,
+    );
   }
   takeDamage(damage) {
     this.takingDamage = true;
@@ -1381,8 +1422,8 @@ class Robber extends Character {
     //   32,
     // );
     ctx.strokeRect(
-      this.x + this.game.camera.camOffsetX,
-      this.y + this.game.camera.camOffsetY,
+      this.x + this.game.currentMode.camera.camOffsetX,
+      this.y + this.game.currentMode.camera.camOffsetY,
       this.w,
       this.h,
     );
@@ -1410,6 +1451,7 @@ class GameInputs {
     this.shiftPressed = false;
     this.attackPressed = false;
     this.aimPressed = false;
+    this.holdUpdate = false;
   }
   reset() {
     this.leftPressed = false;
@@ -1420,6 +1462,7 @@ class GameInputs {
     this.shiftPressed = false;
     this.attackPressed = false;
     this.aimPressed = false;
+    this.holdUpdate = false;
   }
 }
 
@@ -1991,47 +2034,110 @@ class LoadingScreen {
   }
   update(dt) {
     this.loadingBar.update(dt);
-    if(this.loadingBar.isDone){
+    if (this.loadingBar.isDone) {
+      console.log(this.game.currentMode);
       this.game.currentMode = new PlatformerMode(this.game);
+      this.game.currentMode.init();
+      console.log(this.game.currentMode);
     }
   }
   render(ctx) {
     this.loadingBar.render(ctx);
   }
-  incrementProgress(progress) {
+  incrementProgress(progress, info = null) {
     this.loadingBar.incrementProgress(progress);
+    if (info) {
+      this.loadingBar.changeProgressInfo(info);
+    }
   }
 }
 
+class EnemyHandeler {
+  constructor(mode){
+    this.mode = mode;
+  }
+  update(dt){
+    for(const enemy of this.mode.enemies){
+      enemy.update(dt);
+    }
+  }
+  render(ctx){
+    for(const enemy of this.mode.enemies){
+      enemy.render(ctx);
+    }
+  }
+}
 class PlatformerMode {
   constructor(game) {
     this.game = game;
     this.initialRenderHoldTimer = 0.3; //sec
     this.renderOnHold = true;
   }
+  init() {
+    this.modeType = GameState.PLATFORMER;
+    this.gravity = 600; //px per sec square
+    //entities
+    this.playerW = 16;
+    this.playerH = 42;
+    this.player = new Player(this.game, 20, 20, this.playerW, this.playerH);
+
+    //camera
+    this.camera = new Camera(
+      this.player.centerX(),
+      this.player.centerY(),
+      10,
+      10,
+      this.game,
+      this.player,
+    );
+    //tileMap
+    this.tileMap = new TileMap(
+      this.game,
+      32,
+      32,
+      this.camera,
+      "assets/tileMaps/0.json",
+    );
+    this.enemies = [];
+    this.enemyHandeler = new EnemyHandeler(this);
+
+    this.robber = new Robber(this.game, 70, 20, this.playerW, this.playerH);
+    //Managers
+    this.particleManager = new ParticleManager(this.game);
+
+    //wheel
+    this.wheel = new Wheel(
+      this.game,
+      this.game.vCanvasW / 2,
+      this.game.vCanvasH / 2,
+      this.game.vCanvasW * 0.19,
+    );
+  }
   update(dt) {
-    if(this.renderOnHold){
-      this.initialRenderHoldTimer-=dt;
-      if(this.initialRenderHoldTimer<=0){
-        this.renderOnHold=false;
+    if (this.renderOnHold) {
+      this.initialRenderHoldTimer -= dt;
+      if (this.initialRenderHoldTimer <= 0) {
+        this.renderOnHold = false;
       }
     }
-    this.game.player.update(dt);
-    this.game.camera.update(dt);
-    this.game.tileMap.update(dt);
-    this.game.robber.update(dt);
-    this.game.particleManager.update(dt);
+    this.player.update(dt);
+    this.camera.update(dt);
+    this.tileMap.update(dt);
+    this.robber.update(dt);
+    this.enemyHandeler.update(dt);
+    this.particleManager.update(dt);
   }
   render(ctx) {
-    if(this.renderOnHold){
+    if (this.renderOnHold) {
       return;
     }
-    this.game.tileMap.renderDecors(ctx);
-    this.game.tileMap.renderTiles(ctx);
-    this.game.camera.render(ctx);
-    this.game.robber.render(ctx);
-    this.game.player.render(ctx);
-    this.game.particleManager.render(ctx);
+    this.tileMap.renderDecors(ctx);
+    this.tileMap.renderTiles(ctx);
+    this.camera.render(ctx);
+    this.robber.render(ctx);
+    this.enemyHandeler.render(ctx);
+    this.player.render(ctx);
+    this.particleManager.render(ctx);
   }
 }
 class Game {
@@ -2064,12 +2170,9 @@ class Game {
     this.cameraSwapped = false;
     this.globalInputs = new GameInputs();
     this.bindInputs();
-    this.playerW = 16;
-    this.playerH = 42;
 
-    
     this.currentMode = new LoadingScreen(this, null);
-    this.currentMode.incrementProgress(0.2);
+    this.currentMode.incrementProgress(0.2, "loading the img assets");
     //main loop dependenciesa
     this.nowMs = performance.now();
     this.prevMs = this.nowMs;
@@ -2080,39 +2183,8 @@ class Game {
     await this.loadAssets();
 
     //environment dependencies
-    this.gravity = 600; //px per sec square
-    //entities
-    this.player = new Player(this, 20, 20, this.playerW, this.playerH);
-    //camera
-    this.camera = new Camera(
-      this.player.centerX(),
-      this.player.centerY(),
-      10,
-      10,
-      this,
-      this.player,
-    );
-    this.tileMap = new TileMap(
-      this,
-      32,
-      32,
-      this.camera,
-      "assets/tileMaps/0.json",
-    );
-    this.robber = new Robber(this, 70, 20, this.playerW, this.playerH);
-
-    //Managers
-    this.particleManager = new ParticleManager(this);
-
-    //wheel
-    this.wheel = new Wheel(
-      this,
-      this.vCanvasW / 2,
-      this.vCanvasH / 2,
-      this.vCanvasW * 0.19,
-    );
     if (this.currentMode.modeType == GameState.LOADING_SCREEN) {
-      this.currentMode.incrementProgress(1);
+      this.currentMode.incrementProgress(1, "loading the world");
     }
   }
   bindInputs() {
@@ -2132,7 +2204,7 @@ class Game {
     window.addEventListener("mouseup", (e) => {
       if (e.button === 0) {
         this.globalInputs.attackPressed = false;
-        this.player.attackHandeled = false;
+        this.currentMode.player.attackHandeled = false;
       } else if (e.button === 2) {
         this.globalInputs.aimPressed = false;
         this.cameraSwapped = false;
@@ -2262,8 +2334,10 @@ class Game {
     this.robberDeath = robberDeath;
 
     if (this.currentMode.modeType == GameState.LOADING_SCREEN) {
-      this.currentMode.incrementProgress(0.6);
+      this.currentMode.incrementProgress(0.6, "initializing player");
     }
+    this.playerW = 16;
+    this.playerH = 42;
     //Animations
     this.assets = {
       playerIdle: new Animation(
@@ -2445,6 +2519,7 @@ class Game {
     //delta time calculation
     this.nowMs = performance.now();
     this.deltaTime = (this.nowMs - this.prevMs) / 1000;
+    this.deltaTime = Math.min(this.deltaTime, 0.05);
     this.prevMs = this.nowMs;
 
     this.update(this.deltaTime);
@@ -2454,22 +2529,21 @@ class Game {
   }
   update(dt) {
     this.currentMode.update(dt);
-    if (this.globalInputs.aimPressed && !this.cameraSwapped) {
-      this.cameraSwapped = true;
-      if (this.camera.entity.entityType == EntityType.ROBBER) {
-        this.camera.entity = this.player;
-      } else {
-        this.camera.entity = this.robber;
-      }
-    }
-    //this.wheel.update(dt);
+    // if (this.globalInputs.aimPressed && !this.cameraSwapped) {
+    //   this.cameraSwapped = true;
+    //   if (this.camera.entity.entityType == EntityType.ROBBER) {
+    //     this.camera.entity = this.player;
+    //   } else {
+    //     this.camera.entity = this.robber;
+    //   }
+    // }
   }
   render(ctx) {
     ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, this.vCanvasW, this.vCanvasH);
+
     this.currentMode.render(ctx);
-    //this.wheel.render(ctx);
 
     //rendering vCtx into ctx
     this.ctx.clearRect(0, 0, 250, 250);

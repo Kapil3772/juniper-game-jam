@@ -192,11 +192,15 @@
     { "type": "largeDecor", "variant": 2, "pos": [239.0, 188.5] },
     { "type": "largeDecor", "variant": 2, "pos": [252.5, 37.0] },
     { "type": "largeDecor", "variant": 2, "pos": [118.0, 37.5] },
-    { "type": "largeDecor", "variant": 2, "pos": [340.0, 117.0] },
-    { "type": "spawners", "variant": 0, "pos": [228.5, 192.5] },
-    { "type": "spawners", "variant": 1, "pos": [59.5, 159.5] },
-    { "type": "spawners", "variant": 1, "pos": [321.5, 142.0] },
-    { "type": "spawners", "variant": 1, "pos": [472.0, 111.0] },
-    { "type": "spawners", "variant": 2, "pos": [180.5, 190.5] }
+    { "type": "largeDecor", "variant": 2, "pos": [340.0, 117.0] }
+  ],
+  "spawnners" : [
+    { "type": "robber", "pos": [180.5, 190.5] }
+  ],
+  "backup" : [
+    { "type": "robber", "pos": [228.5, 192.5] },
+    { "type": "robber", "pos": [59.5, 159.5] },
+    { "type": "robber", "pos": [472.0, 111.0] },
+    { "type": "robber", "pos": [180.5, 190.5] }
   ]
 }
