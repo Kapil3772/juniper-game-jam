@@ -257,13 +257,13 @@ class Tile extends PhysicsRect {
         this.h,
       );
       //debug
-      ctx.strokeStyle = "cyan";
-      ctx.strokeRect(
-        this.x + this.camera.camOffsetX,
-        this.y + this.camera.camOffsetY,
-        this.w,
-        this.h,
-      );
+      // ctx.strokeStyle = "cyan";
+      // ctx.strokeRect(
+      //   this.x + this.camera.camOffsetX,
+      //   this.y + this.camera.camOffsetY,
+      //   this.w,
+      //   this.h,
+      // );
     } else {
       ctx.strokeStyle = "cyan";
       ctx.strokeRect(
@@ -689,9 +689,12 @@ class BulletHandeler {
       if (this.entity.entityType == EntityType.PLAYER) {
         for (const enemy of this.entity.game.currentMode.enemies) {
           if (bullet.intersects(enemy)) {
-            if (!bullet.damageApplied) {
+            if (!bullet.damageApplied && !enemy.deathTransitionStarted) {
               bullet.damageApplied = true;
-              enemy.takeDamage(bullet.baseDamage);
+              enemy.takeDamage(
+                bullet.baseDamage * this.entity.damageMultiplier,
+              );
+              this.entity.game.applyScreenShake(8);
               for (let i = 0; i < 25; i++) {
                 this.entity.game.currentMode.particleManager.addBloodParticle(
                   enemy.centerX(),
@@ -707,6 +710,7 @@ class BulletHandeler {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
             this.entity.game.currentMode.player.takeDamage();
+            this.entity.game.applyScreenShake(10);
             for (let i = 0; i < 25; i++) {
               this.entity.game.currentMode.particleManager.addBloodParticle(
                 this.entity.game.currentMode.player.centerX(),
@@ -818,6 +822,10 @@ class Player extends PhysicsRect {
     this.bulletHandeler = new BulletHandeler(this);
     this.takingDamage = false;
     this.takingDamageTimer = 0;
+
+    //card effect dependencies
+    this.damageMultiplier = 1;
+    this.damageTakenMultiplier = 1;
   }
   update(dt) {
     // horizontal movement
@@ -890,6 +898,7 @@ class Player extends PhysicsRect {
         this.attackTimerStarted = true;
         this.gunRecoilFactor = this.isRunning ? 0.5 : 0.8;
         this.bulletHandeler.addBullet();
+        this.game.applyScreenShake(6);
       }
     }
     this.bulletHandeler.update(dt);
@@ -1073,13 +1082,13 @@ class Player extends PhysicsRect {
         ctx.drawImage(this.img, drawX, drawY);
       }
       //Actual Physical debug rect
-      ctx.strokeStyle = "cyan";
-      ctx.strokeRect(
-        this.x + this.game.currentMode.camera.camOffsetX,
-        this.y + this.game.currentMode.camera.camOffsetY,
-        this.w,
-        this.h,
-      );
+      // ctx.strokeStyle = "cyan";
+      // ctx.strokeRect(
+      //   this.x + this.game.currentMode.camera.camOffsetX,
+      //   this.y + this.game.currentMode.camera.camOffsetY,
+      //   this.w,
+      //   this.h,
+      // );
       //Image debug rect
       // ctx.strokeStyle = "red";
       // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
@@ -1099,6 +1108,14 @@ class Player extends PhysicsRect {
     this.offscreenCtx.fillStyle = flashColor;
     this.offscreenCtx.fillRect(0, 0, img.width, img.height);
     ctx.drawImage(this.offscreenCanvas, x, y);
+  }
+  applyCard(cardId) {
+    switch (cardId) {
+      case "glass_cannon":
+        this.damageMultiplier = 2;
+        this.damageTakenMultiplier = 2;
+        break;
+    }
   }
 }
 class Character extends PhysicsRect {
@@ -1159,14 +1176,6 @@ class Character extends PhysicsRect {
       } else {
         ctx.drawImage(this.img, drawX, drawY);
       }
-      //Actual Physical debug rect
-      ctx.strokeStyle = "cyan";
-      ctx.strokeRect(
-        this.x + this.game.currentMode.camera.camOffsetX,
-        this.y + this.game.currentMode.camera.camOffsetY,
-        this.w,
-        this.h,
-      );
       //Image debug rect
       // ctx.strokeStyle = "red";
       // ctx.strokeRect(this.x + this.animationPlayer.animation.xOffset, this.y + this.animationPlayer.animation.yOffset,this.img.width,this.img.height);
@@ -1481,12 +1490,13 @@ class Robber extends Character {
     //   32,
     //   32,
     // );
-    ctx.strokeRect(
-      this.x + this.game.currentMode.camera.camOffsetX,
-      this.y + this.game.currentMode.camera.camOffsetY,
-      this.w,
-      this.h,
-    );
+    //debug
+    // ctx.strokeRect(
+    //   this.x + this.game.currentMode.camera.camOffsetX,
+    //   this.y + this.game.currentMode.camera.camOffsetY,
+    //   this.w,
+    //   this.h,
+    // );
     //detect rect
     // ctx.strokeStyle = "red";
     // ctx.strokeRect(
@@ -1513,6 +1523,8 @@ class GameInputs {
     this.attackPressed = false;
     this.aimPressed = false;
     this.holdUpdate = false;
+    this.mouseX = 0;
+    this.mouseY = 0;
   }
   reset() {
     this.leftPressed = false;
@@ -1562,6 +1574,17 @@ class PopupCard extends Rect {
     this.baseDisplacementX = this.w;
     this.displacementX = 0;
     this.animProgress = 0;
+    this.renderX = 0;
+    this.renderY = 0;
+    this.hovered = false;
+  }
+  containsPoint(mx, my) {
+    return (
+      mx >= this.renderX &&
+      mx <= this.renderX + this.w &&
+      my >= this.renderY &&
+      my <= this.renderY + this.h
+    );
   }
 
   easeOut(t) {
@@ -1570,6 +1593,10 @@ class PopupCard extends Rect {
 
   update(dt) {
     this.animProgress = Math.min(1, this.animProgress + dt);
+    this.hovered = this.containsPoint(
+      this.game.globalInputs.mouseX,
+      this.game.globalInputs.mouseY,
+    );
   }
 
   resetAnim() {
@@ -1591,20 +1618,27 @@ class PopupCard extends Rect {
     const x = this.x + this.displacementX + gapW;
     const y = this.y - this.h / 2 + slideOffset;
 
+    const hoverOffset = this.hovered ? -5 : 0;
+    this.renderX = x;
+    this.renderY = y + hoverOffset;
+    const renderY = y + hoverOffset;
     ctx.save();
     ctx.globalAlpha = eased;
 
     // Shadow
-    ctx.shadowColor = "rgba(0,0,0,0.4)";
-    ctx.shadowBlur = 20;
+    ctx.shadowColor = this.hovered
+      ? "rgba(255,255,255,0.4)"
+      : "rgba(0,0,0,0.4)";
+
+    ctx.shadowBlur = this.hovered ? 12 : 20;
     ctx.shadowOffsetY = 2;
 
     // Main card background — tinted with slice color
     ctx.fillStyle = cardColor + "40";
     ctx.strokeStyle = cardColor;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = this.hovered ? 6 : 4;
     ctx.beginPath();
-    ctx.roundRect(x, y, this.w, this.h, 14);
+    ctx.roundRect(x, renderY, this.w, this.h, 14);
     ctx.fill();
     ctx.stroke();
 
@@ -1613,14 +1647,17 @@ class PopupCard extends Rect {
     // Color strip at top
     ctx.fillStyle = cardColor;
     ctx.beginPath();
-    ctx.roundRect(x, y, this.w, 10, [14, 14, 0, 0]);
+    ctx.roundRect(x, renderY, this.w, 10, [14, 14, 0, 0]);
     ctx.fill();
 
     // ==========================
     // BUFF SECTION
     // ==========================
 
-    const buffY = y + 22;
+    const buffY = renderY + 22;
+
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 2;
 
     ctx.fillStyle = "rgba(42,157,143,0.15)";
     ctx.fillRect(x + 10, buffY, this.w - 20, 80);
@@ -1661,10 +1698,10 @@ class PopupCard extends Rect {
 
     // Rivets
     const rivets = [
-      [x + 12, y + 20],
-      [x + this.w - 12, y + 20],
-      [x + 12, y + this.h - 12],
-      [x + this.w - 12, y + this.h - 12],
+      [x + 12, renderY + 20],
+      [x + this.w - 12, renderY + 20],
+      [x + 12, renderY + this.h - 12],
+      [x + this.w - 12, renderY + this.h - 12],
     ];
     for (const [rx, ry] of rivets) {
       ctx.beginPath();
@@ -1694,6 +1731,9 @@ class Wheel {
     this.unitPartAngle = (Math.PI * 2) / this.partition;
     this.wheelColours = ["#FF6B6B", "#4ECDC4", "#FFE66D"];
 
+    this.isActive = true;
+    this.isVisible = true;
+
     //pointer
     this.lPointerIndex = null;
     this.rPointerIndex = null;
@@ -1717,6 +1757,7 @@ class Wheel {
     this.inTransition = true;
     this.baseTransitionDisplacement = 300;
     this.slideOffset = 0;
+    this.transitionDirection = "up";
     //popup
     this.popups = [
       new PopupCard(
@@ -1744,6 +1785,9 @@ class Wheel {
         this.game.cardData.data2,
       ),
     ];
+    this.popupActive = false;
+    this.cardSelected = false;
+    this.selectedCard = null;
   }
   easeOut(t) {
     return 1 - Math.pow(1 - t, 3);
@@ -1752,10 +1796,22 @@ class Wheel {
     if (this.inTransition) {
       this.transitionProgress = Math.min(1, this.transitionProgress + dt * 0.7);
       const eased = this.easeOut(this.transitionProgress);
-      this.slideOffset = (1 - eased) * this.baseTransitionDisplacement;
+      if (this.transitionDirection === "up") {
+        this.slideOffset = (1 - eased) * this.baseTransitionDisplacement;
+      } else {
+        this.slideOffset = eased * this.baseTransitionDisplacement;
+      }
     } else {
       this.slideOffset = 0;
     }
+    if (this.transitionProgress >= 1) {
+      this.inTransition = false;
+
+      if (this.transitionDirection === "down") {
+        this.resetWheel();
+      }
+    }
+
     this.angle += this.angularVelocity * dt;
     this.angularVelocity = Math.max(
       this.angularVelocity + this.friction * dt,
@@ -1770,10 +1826,12 @@ class Wheel {
     if (
       this.spinHandeled &&
       this.angularVelocity <= 0 &&
-      !this.indexCalculated
+      !this.indexCalculated &&
+      !this.popupActive
     ) {
       this.indexCalculated = true;
       this.calculateIndex();
+      this.popupActive = true;
       this.spinCoolDownTimer = this.spinCoolDownTime;
       if (!this.animatingWinnerSection) {
         this.animatingWinnerSection = true;
@@ -1781,10 +1839,10 @@ class Wheel {
       }
     }
     //spin cooldown handel
-    if (this.indexCalculated) {
+    if (this.indexCalculated && this.isActive) {
       this.spinCoolDownTimer -= dt;
       if (this.spinCoolDownTimer <= 0) {
-        this.spinHandeled = false;
+        //this.spinHandeled = false;
         this.indexCalculated = false;
         this.spinCoolDownTimer = 0;
       }
@@ -1794,6 +1852,7 @@ class Wheel {
       this.animatingWinnerSectionTimer -= dt;
       if (this.animatingWinnerSectionTimer <= 0) {
         this.animatingWinnerSection = false;
+        this.isActive = false;
       }
       if (this.brightening) {
         this.alphaIndex = Math.min(
@@ -1809,13 +1868,44 @@ class Wheel {
         if (this.alphaIndex <= 0) this.brightening = true;
       }
     }
-    if (
-      this.spinHandeled &&
-      this.indexCalculated &&
-      !this.animatingWinnerSection
-    ) {
+    //popup card handel
+    if (this.popupActive && !this.animatingWinnerSection) {
       this.popups[this.rPointerIndex % 3].update(dt);
       this.popups[this.lPointerIndex % 3].update(dt);
+      if (this.game.globalInputs.attackPressed && !this.cardSelected) {
+        const leftCard = this.popups[this.lPointerIndex % 3];
+        const rightCard = this.popups[this.rPointerIndex % 3];
+
+        if (
+          leftCard.containsPoint(
+            this.game.globalInputs.mouseX,
+            this.game.globalInputs.mouseY,
+          )
+        ) {
+          this.cardSelected = true;
+          this.selectedCard = leftCard;
+          this.popupActive = false;
+          this.game.currentMode.player.applyCard(this.selectedCard.cardData.id);
+          this.transitionDirection = "down";
+          this.transitionProgress = 0;
+          this.inTransition = true;
+          this.isVisible = false;
+        } else if (
+          rightCard.containsPoint(
+            this.game.globalInputs.mouseX,
+            this.game.globalInputs.mouseY,
+          )
+        ) {
+          this.cardSelected = true;
+          this.selectedCard = rightCard;
+          this.popupActive = false;
+          this.game.currentMode.player.applyCard(this.selectedCard.cardData.id);
+          this.transitionDirection = "down";
+          this.transitionProgress = 0;
+          this.inTransition = true;
+          this.isVisible = false;
+        }
+      }
     }
   }
   spin() {
@@ -1837,7 +1927,33 @@ class Wheel {
     this.popups[this.lPointerIndex % 3].resetAnim();
     this.popups[this.rPointerIndex % 3].resetAnim();
   }
+  resetWheel() {
+    this.angularVelocity = 0;
+    this.angle = 0;
+
+    this.spinHandeled = false;
+    this.indexCalculated = false;
+
+    this.popupActive = false;
+
+    this.cardSelected = false;
+    this.selectedCard = null;
+
+    this.lPointerIndex = null;
+    this.rPointerIndex = null;
+
+    this.animatingWinnerSection = false;
+    this.alphaIndex = 0;
+
+    this.isActive = true;
+
+    this.transitionDirection = "up";
+    this.transitionProgress = 0;
+  }
   render(ctx) {
+    if(!this.isVisible){
+      return;
+    }
     ctx.save();
 
     ctx.translate(this.x, this.y + this.slideOffset);
@@ -1946,11 +2062,7 @@ class Wheel {
     this.renderPointer(ctx, this.lPointerAngle);
     this.renderPointer(ctx, this.rPointerAngle);
 
-    if (
-      this.spinHandeled &&
-      this.indexCalculated &&
-      !this.animatingWinnerSection
-    ) {
+    if (this.popupActive && !this.animatingWinnerSection) {
       this.renderPopupCard(ctx, (this.rPointerIndex % 3) + 1, true);
       this.renderPopupCard(ctx, (this.lPointerIndex % 3) + 1, false);
     }
@@ -2206,6 +2318,7 @@ class PlatformerMode {
     this.tileMap.update(dt);
     this.enemyHandeler.update(dt);
     this.particleManager.update(dt);
+    this.wheel.update(dt);
   }
   render(ctx) {
     if (this.renderOnHold) {
@@ -2217,6 +2330,7 @@ class PlatformerMode {
     this.enemyHandeler.render(ctx);
     this.player.render(ctx);
     this.particleManager.render(ctx);
+    this.wheel.render(ctx);
   }
 }
 class Game {
@@ -2239,6 +2353,11 @@ class Game {
     this.init();
   }
   async init() {
+    //global effects
+    this.screenShakeStrength = 0;
+    this.screenShakeDecayVelocity = 70;
+    this.shakeX = 0;
+    this.shakeY = 0;
     //game inputs
     this.gameRenderingRect = new Rect(
       -50,
@@ -2267,6 +2386,16 @@ class Game {
     }
   }
   bindInputs() {
+    this.canvas.addEventListener("mousemove", (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      this.globalInputs.mouseX = mouseX * (this.vCanvasW / rect.width);
+
+      this.globalInputs.mouseY = mouseY * (this.vCanvasH / rect.height);
+    });
     window.addEventListener("blur", () => {
       this.globalInputs.reset();
     });
@@ -2569,22 +2698,27 @@ class Game {
     };
     this.cardData = {
       data0: {
-        buffLabel: "nooo",
-        buffDetail: "You gain 2X speed",
-        debuffLabel: "Stronger Enemies",
-        debuffDetail: "Enemy health get 2x more",
+        id: "vampire",
+        buffLabel: "Vampire",
+        buffDetail: "Heal 1 HP for every kill",
+        debuffLabel: "Weak Attacks",
+        debuffDetail: "Deal 25% less damage",
       },
+
       data1: {
-        buffLabel: "Speed",
-        buffDetail: "You gain 2X speed",
-        debuffLabel: "Stronger Enemies",
-        debuffDetail: "Enemy health get 2x more",
+        id: "glass_cannon",
+        buffLabel: "Glass Cannon",
+        buffDetail: "Deal 2X damage",
+        debuffLabel: "Fragile",
+        debuffDetail: "Take 2X damage",
       },
+
       data2: {
-        buffLabel: "Speed",
-        buffDetail: "You gain 2X speed",
-        debuffLabel: "Stronger Enemies",
-        debuffDetail: "Enemy health get 2x more",
+        id: "lucky_escape",
+        buffLabel: "Lucky Escape",
+        buffDetail: "Revive once after death",
+        debuffLabel: "Bad Start",
+        debuffDetail: "Begin with 50% HP",
       },
     };
     this.tileVariantRegistry = {
@@ -2616,6 +2750,21 @@ class Game {
     //     this.camera.entity = this.robber;
     //   }
     // }
+    if (this.screenShakeStrength > 0) {
+      this.updateScreenShake(dt);
+    } else {
+      this.shakeX = 0;
+      this.shakeY = 0;
+    }
+  }
+  updateScreenShake(dt) {
+    this.screenShakeStrength = Math.max(
+      this.screenShakeStrength - this.screenShakeDecayVelocity * dt,
+      0,
+    );
+    let angle = Math.random() * Math.PI * 2;
+    this.shakeX = this.screenShakeStrength * Math.cos(angle);
+    this.shakeY = this.screenShakeStrength * Math.sin(angle);
   }
   render(ctx) {
     ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
@@ -2623,12 +2772,20 @@ class Game {
     ctx.fillRect(0, 0, this.vCanvasW, this.vCanvasH);
 
     this.currentMode.render(ctx);
-
     //rendering vCtx into ctx
     this.ctx.clearRect(0, 0, 250, 250);
     this.ctx.fillStyle = "grey";
     this.ctx.fillRect(0, 0, this.canvasW, this.canvasH);
-    this.ctx.drawImage(this.vCanvas, 0, 0, this.canvasW, this.canvasH);
+    this.ctx.drawImage(
+      this.vCanvas,
+      0 + this.shakeX,
+      0 + this.shakeY,
+      this.canvasW,
+      this.canvasH,
+    );
+  }
+  applyScreenShake(value) {
+    this.screenShakeStrength = Math.max(value, this.screenShakeStrength);
   }
 }
 
