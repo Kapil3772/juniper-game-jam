@@ -195,7 +195,8 @@
     { "type": "largeDecor", "variant": 2, "pos": [340.0, 117.0] }
   ],
   "spawnners" : [
-    { "type": "robber", "pos": [180.5, 190.5] }
+    { "type": "robber", "pos": [180.5, 190.5] },
+    { "type": "robber", "pos": [70, 40] }
   ],
   "backup" : [
     { "type": "robber", "pos": [228.5, 192.5] },

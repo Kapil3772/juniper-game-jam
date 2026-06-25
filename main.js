@@ -256,6 +256,14 @@ class Tile extends PhysicsRect {
         this.w,
         this.h,
       );
+      //debug
+      ctx.strokeStyle = "cyan";
+      ctx.strokeRect(
+        this.x + this.camera.camOffsetX,
+        this.y + this.camera.camOffsetY,
+        this.w,
+        this.h,
+      );
     } else {
       ctx.strokeStyle = "cyan";
       ctx.strokeRect(
@@ -435,8 +443,8 @@ class TileMap {
         this.game.currentMode.enemies.push(
           new Robber(
             this.game,
-            entity.pos[0]*2,
-            entity.pos[1]*2,
+            entity.pos[0] * 2,
+            entity.pos[1] * 2,
             this.game.currentMode.playerW,
             this.game.currentMode.playerH,
           ),
@@ -509,7 +517,7 @@ class TileMap {
     );
     for (let i = this.visibleLeft; i <= this.visibleRight; i++) {
       for (let j = this.visibleTop; j <= this.visibleBottom; j++) {
-        const tile = this.onGridTiles.get(i+","+j);
+        const tile = this.onGridTiles.get(i + "," + j);
         if (tile) {
           this.onScreenTiles.push(tile);
         }
@@ -635,10 +643,19 @@ class Bullet extends PhysicsRect {
     this.bulletAnimPlayer.animation = this.bulletAnim;
     this.damageApplied = false;
     this.baseDamage = 20;
+    this.isExpired = false;
   }
   update(dt) {
     this.x += this.xVelocity * dt * this.direction;
     this.bulletAnimPlayer.update(dt);
+
+    //grid pos update
+    this.gridX = Math.floor(
+      this.x / this.entity.game.currentMode.tileMap.tileW,
+    );
+    this.gridY = Math.floor(
+      this.y / this.entity.game.currentMode.tileMap.tileH,
+    );
   }
   render(ctx) {
     const img = this.bulletAnimPlayer.getCurrentFrame();
@@ -666,22 +683,24 @@ class BulletHandeler {
       bullet.update(dt);
       //bullet goes out of bound
       if (!bullet.intersects(this.entity.game.gameRenderingRect)) {
-        this.removeBullet(bullet);
+        bullet.isExpired = true;
       }
+      //Bullet hits characters
       if (this.entity.entityType == EntityType.PLAYER) {
-        if (bullet.intersects(this.entity.game.currentMode.robber)) {
-          if (!bullet.damageApplied) {
-            bullet.damageApplied = true;
-            this.entity.game.currentMode.robber.takeDamage(bullet.baseDamage);
-            for (let i = 0; i < 25; i++) {
-              this.entity.game.currentMode.particleManager.addBloodParticle(
-                this.entity.game.currentMode.robber.centerX(),
-                this.entity.game.currentMode.robber.centerY() -
-                  this.entity.game.currentMode.robber.h * 0.2,
-              );
+        for (const enemy of this.entity.game.currentMode.enemies) {
+          if (bullet.intersects(enemy)) {
+            if (!bullet.damageApplied) {
+              bullet.damageApplied = true;
+              enemy.takeDamage(bullet.baseDamage);
+              for (let i = 0; i < 25; i++) {
+                this.entity.game.currentMode.particleManager.addBloodParticle(
+                  enemy.centerX(),
+                  enemy.centerY() - enemy.h * 0.2,
+                );
+              }
             }
+            bullet.isExpired = true;
           }
-          this.removeBullet(bullet);
         }
       } else if (this.entity.entityType == EntityType.ROBBER) {
         if (bullet.intersects(this.entity.game.currentMode.player)) {
@@ -696,11 +715,22 @@ class BulletHandeler {
               );
             }
           }
-          this.removeBullet(bullet);
+          bullet.isExpired = true;
         }
       }
       //bullet collides with Physics Rect
+      if (
+        this.entity.game.currentMode.tileMap.checkForPhysicsTile(
+          bullet.gridX,
+          bullet.gridY,
+        )
+      ) {
+        bullet.isExpired = true;
+        //bullet wall hit spark handel
+      }
     }
+    //Filtering expired bullets
+    this.filterExpiredBullets();
   }
   render(ctx) {
     for (const bullet of this.bullets) {
@@ -722,9 +752,14 @@ class BulletHandeler {
       ),
     );
   }
-  removeBullet(bullet) {
-    let id = this.bullets.indexOf(bullet);
-    this.bullets.splice(id, 1);
+  filterExpiredBullets() {
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      const bullet = this.bullets[i];
+
+      if (bullet.isExpired) {
+        this.bullets.splice(i, 1);
+      }
+    }
   }
 }
 
@@ -1211,6 +1246,9 @@ class Robber extends Character {
     let baseHealth = 100;
     this.healthBarManager = new HealthBarManager(this, baseHealth);
     this.currentHealth = this.healthBarManager.baseHealth;
+    this.isDead = false;
+    this.deathTransitionStarted = false;
+    this.deathTransitionTimer = this.game.assets.robberDeath.animCompletionTime;
 
     //timers
     this.movingTimer = 0;
@@ -1243,6 +1281,22 @@ class Robber extends Character {
     this.flashColorSwapTimer = this.flashColorSwapTime; //secs
   }
   update(dt) {
+    //health update
+    if (
+      this.currentHealth <= 0 &&
+      !this.deathTransitionStarted &&
+      !this.takingDamage
+    ) {
+      this.deathTransitionStarted = true;
+    }
+    if (this.deathTransitionStarted) {
+      this.deathTransitionTimer = Math.max(this.deathTransitionTimer - dt, 0);
+      this.healthBarManager.update(dt);
+      this.bulletHandeler.update(dt);
+      this.updateAnimationState();
+      this.animationPlayer.update(dt);
+      return;
+    }
     //horizontal movement
     this.x += this.xVelocity * this.direction * dt;
 
@@ -1257,6 +1311,10 @@ class Robber extends Character {
         !this.game.currentMode.tileMap.checkForPhysicsTile(
           this.checkGridX,
           this.checkGridY,
+        ) ||
+        this.game.currentMode.tileMap.checkForPhysicsTile(
+          this.checkGridX,
+          this.checkGridY - 1,
         )
       ) {
         this.flip = !this.flip;
@@ -1370,7 +1428,9 @@ class Robber extends Character {
     this.animationPlayer.update(dt);
   }
   updateAnimationState() {
-    if (this.isFiring) {
+    if (this.deathTransitionStarted) {
+      this.newAnimState = CharacterAnimState.ROBBER_DEATH;
+    } else if (this.isFiring) {
       this.newAnimState = CharacterAnimState.ROBBER_FIRE;
     } else if (this.isMoving) {
       this.newAnimState = CharacterAnimState.ROBBER_RUN;
@@ -1435,9 +1495,10 @@ class Robber extends Character {
     //   this.detectRect.w,
     //   this.detectRect.h,
     // );
-
     this.bulletHandeler.render(ctx);
-    this.healthBarManager.render(ctx);
+    if (!this.isDead) {
+      this.healthBarManager.render(ctx);
+    }
   }
 }
 
@@ -2053,17 +2114,37 @@ class LoadingScreen {
 }
 
 class EnemyHandeler {
-  constructor(mode){
+  constructor(mode) {
     this.mode = mode;
   }
-  update(dt){
-    for(const enemy of this.mode.enemies){
+  update(dt) {
+    for (const enemy of this.mode.enemies) {
       enemy.update(dt);
+      if (enemy.deathTransitionTimer <= 0) {
+        enemy.isDead = true;
+      }
+    }
+    this.filterDeadEnemies();
+    for (const deadBody of this.mode.deadBodies) {
+      deadBody.update(dt);
     }
   }
-  render(ctx){
-    for(const enemy of this.mode.enemies){
+  render(ctx) {
+    for (const enemy of this.mode.enemies) {
       enemy.render(ctx);
+    }
+    for (const deadBody of this.mode.deadBodies) {
+      deadBody.render(ctx);
+    }
+  }
+  filterDeadEnemies() {
+    for (let i = this.mode.enemies.length - 1; i >= 0; i--) {
+      const enemy = this.mode.enemies[i];
+
+      if (enemy.isDead) {
+        const deadBody = this.mode.enemies.splice(i, 1)[0];
+        this.mode.deadBodies.push(deadBody);
+      }
     }
   }
 }
@@ -2099,9 +2180,9 @@ class PlatformerMode {
       "assets/tileMaps/0.json",
     );
     this.enemies = [];
+    this.deadBodies = [];
     this.enemyHandeler = new EnemyHandeler(this);
 
-    this.robber = new Robber(this.game, 70, 20, this.playerW, this.playerH);
     //Managers
     this.particleManager = new ParticleManager(this.game);
 
@@ -2123,7 +2204,6 @@ class PlatformerMode {
     this.player.update(dt);
     this.camera.update(dt);
     this.tileMap.update(dt);
-    this.robber.update(dt);
     this.enemyHandeler.update(dt);
     this.particleManager.update(dt);
   }
@@ -2134,7 +2214,6 @@ class PlatformerMode {
     this.tileMap.renderDecors(ctx);
     this.tileMap.renderTiles(ctx);
     this.camera.render(ctx);
-    this.robber.render(ctx);
     this.enemyHandeler.render(ctx);
     this.player.render(ctx);
     this.particleManager.render(ctx);
@@ -2304,7 +2383,7 @@ class Game {
       this.loader.loadImagesFromFolder("assets/robber/idle/", 5),
       this.loader.loadImagesFromFolder("assets/robber/run/", 8),
       this.loader.loadImagesFromFolder("assets/robber/fire/", 5),
-      this.loader.loadImagesFromFolder("assets/robber/death/", 8),
+      this.loader.loadImagesFromFolder("assets/robber/death/", 7),
       this.loader.loadImagesFromFolder("assets/tiles/grass/", 9),
       this.loader.loadImagesFromFolder("assets/tiles/stone/", 9),
       this.loader.loadImagesFromFolder("assets/tiles/decor/", 4),
@@ -2482,7 +2561,7 @@ class Game {
       ),
       robberDeath: new Animation(
         this.robberDeath,
-        0.5,
+        0.8,
         false,
         this.playerW,
         this.playerH,
