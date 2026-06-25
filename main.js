@@ -72,6 +72,41 @@ class GameImage {
     return (await Promise.all(promises)).filter(Boolean);
   }
 }
+
+class ProgressBar extends Rect {
+  constructor(entity, x, y, w, h, baseProgress = 0) {
+    super(x, y, w, h);
+    this.entity = entity;
+    this.baseProgress = baseProgress;
+    this.currentProgress = this.baseProgress;
+    this.progressColor = "green";
+    this.maxProgress = 1;
+    this.increasedProgress = this.baseProgress;
+    this.progressVelocity = this.maxProgress * 0.2; // x width completes per sec
+    this.isDone = false;
+  }
+  update(dt) {
+    this.currentProgress += this.progressVelocity * dt;
+    this.currentProgress = Math.min(
+      this.currentProgress,
+      this.increasedProgress,
+    );
+    if(this.currentProgress == this.maxProgress && !this.isDone){
+      this.isDone = true;
+    }
+  }
+  render(ctx) {
+    ctx.fillStyle = this.progressColor;
+    const fillW = (this.w / this.maxProgress) * this.currentProgress;
+    ctx.fillRect(this.x, this.y, fillW, this.h);
+    ctx.strokeStyle = "black";
+    ctx.strokeRect(this.x, this.y, this.w, this.h);
+  }
+  incrementProgress(progress) {
+    this.increasedProgress = Math.min(progress, this.maxProgress);
+
+  }
+}
 class BloodParticle {
   constructor(x, y, camera) {
     this.x = x;
@@ -106,7 +141,7 @@ class BloodParticle {
         this.decayTransitionStarted = true;
       }
     } else {
-      this.vy += 400 * dt; // gravity
+      this.vy += 700 * dt; // gravity
 
       this.x += this.vx * dt;
       this.y += this.vy * dt;
@@ -621,6 +656,13 @@ class BulletHandeler {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
             this.entity.game.player.takeDamage();
+            for (let i = 0; i < 25; i++) {
+              this.entity.game.particleManager.addBloodParticle(
+                this.entity.game.player.centerX(),
+                this.entity.game.player.centerY() -
+                  this.entity.game.player.h * 0.2,
+              );
+            }
           }
           this.removeBullet(bullet);
         }
@@ -1311,6 +1353,9 @@ class Robber extends Character {
         case CharacterAnimState.ROBBER_FIRE:
           this.animationPlayer.setAnimation(this.game.assets.robberFire);
           break;
+        case CharacterAnimState.ROBBER_DEATH:
+          this.animationPlayer.setAnimation(this.game.assets.robberDeath);
+          break;
         default:
           break;
       }
@@ -1357,6 +1402,16 @@ class Robber extends Character {
 
 class GameInputs {
   constructor() {
+    this.leftPressed = false;
+    this.rightPressed = false;
+    this.jumpPressed = false;
+    this.jumpHandeled = false;
+    this.enterPressed = false;
+    this.shiftPressed = false;
+    this.attackPressed = false;
+    this.aimPressed = false;
+  }
+  reset() {
     this.leftPressed = false;
     this.rightPressed = false;
     this.jumpPressed = false;
@@ -1910,6 +1965,75 @@ class Wheel {
     ctx.closePath();
   }
 }
+
+const GameState = {
+  LOADING_SCREEN: "LOADING_SCREEN",
+  HOME_MENU: "HOME_MENU",
+  PLATFORMER: "PLATFORMER",
+};
+
+class LoadingScreen {
+  constructor(game, backGroundImg) {
+    this.modeType = GameState.LOADING_SCREEN;
+    this.game = game;
+    this.loadingBar = new ProgressBar(
+      this.game,
+      0,
+      0,
+      this.game.vCanvasW * 0.6,
+      20,
+      0.02,
+    );
+    this.loadingBar.x = this.game.vCanvasW / 2 - this.loadingBar.w / 2;
+    this.loadingBar.y = this.game.vCanvasH - this.loadingBar.h - 10;
+    this.img = backGroundImg;
+    this.inLoadingState = true;
+  }
+  update(dt) {
+    this.loadingBar.update(dt);
+    if(this.loadingBar.isDone){
+      this.game.currentMode = new PlatformerMode(this.game);
+    }
+  }
+  render(ctx) {
+    this.loadingBar.render(ctx);
+  }
+  incrementProgress(progress) {
+    this.loadingBar.incrementProgress(progress);
+  }
+}
+
+class PlatformerMode {
+  constructor(game) {
+    this.game = game;
+    this.initialRenderHoldTimer = 0.3; //sec
+    this.renderOnHold = true;
+  }
+  update(dt) {
+    if(this.renderOnHold){
+      this.initialRenderHoldTimer-=dt;
+      if(this.initialRenderHoldTimer<=0){
+        this.renderOnHold=false;
+      }
+    }
+    this.game.player.update(dt);
+    this.game.camera.update(dt);
+    this.game.tileMap.update(dt);
+    this.game.robber.update(dt);
+    this.game.particleManager.update(dt);
+  }
+  render(ctx) {
+    if(this.renderOnHold){
+      return;
+    }
+    this.game.tileMap.renderDecors(ctx);
+    this.game.tileMap.renderTiles(ctx);
+    this.game.camera.render(ctx);
+    this.game.robber.render(ctx);
+    this.game.player.render(ctx);
+    this.game.particleManager.render(ctx);
+  }
+}
 class Game {
   constructor() {
     this.canvas = document.getElementById("game");
@@ -1942,6 +2066,17 @@ class Game {
     this.bindInputs();
     this.playerW = 16;
     this.playerH = 42;
+
+    
+    this.currentMode = new LoadingScreen(this, null);
+    this.currentMode.incrementProgress(0.2);
+    //main loop dependenciesa
+    this.nowMs = performance.now();
+    this.prevMs = this.nowMs;
+    this.deltaTime = 0;
+    this.gameloop();
+
+    //asset loading
     await this.loadAssets();
 
     //environment dependencies
@@ -1976,14 +2111,14 @@ class Game {
       this.vCanvasH / 2,
       this.vCanvasW * 0.19,
     );
-
-    //main loop dependenciesa
-    this.nowMs = performance.now();
-    this.prevMs = this.nowMs;
-    this.deltaTime = 0;
-    this.gameloop();
+    if (this.currentMode.modeType == GameState.LOADING_SCREEN) {
+      this.currentMode.incrementProgress(1);
+    }
   }
   bindInputs() {
+    window.addEventListener("blur", () => {
+      this.globalInputs.reset();
+    });
     window.addEventListener("contextmenu", (e) => {
       e.preventDefault();
     });
@@ -2125,6 +2260,10 @@ class Game {
     this.robberRun = robberRun;
     this.robberFire = robberFire;
     this.robberDeath = robberDeath;
+
+    if (this.currentMode.modeType == GameState.LOADING_SCREEN) {
+      this.currentMode.incrementProgress(0.6);
+    }
     //Animations
     this.assets = {
       playerIdle: new Animation(
@@ -2314,6 +2453,7 @@ class Game {
     requestAnimationFrame(() => this.gameloop());
   }
   update(dt) {
+    this.currentMode.update(dt);
     if (this.globalInputs.aimPressed && !this.cameraSwapped) {
       this.cameraSwapped = true;
       if (this.camera.entity.entityType == EntityType.ROBBER) {
@@ -2322,23 +2462,13 @@ class Game {
         this.camera.entity = this.robber;
       }
     }
-    this.player.update(dt);
-    this.camera.update(dt);
-    this.tileMap.update(dt);
-    this.robber.update(dt);
-    this.particleManager.update(dt);
     //this.wheel.update(dt);
   }
   render(ctx) {
     ctx.clearRect(0, 0, this.vCanvasW, this.vCanvasH);
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, this.vCanvasW, this.vCanvasH);
-    this.tileMap.renderDecors(ctx);
-    this.tileMap.renderTiles(ctx);
-    this.camera.render(ctx);
-    this.robber.render(ctx);
-    this.player.render(ctx);
-    this.particleManager.render(ctx);
+    this.currentMode.render(ctx);
     //this.wheel.render(ctx);
 
     //rendering vCtx into ctx
