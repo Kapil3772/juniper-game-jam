@@ -115,6 +115,131 @@ class ProgressBar extends Rect {
     this.progressInfo = info;
   }
 }
+
+class OrbParticle extends PhysicsRect {
+  constructor(x, y, w, h, targetEntity) {
+    super(x, y, w, h);
+    this.onAir = true;
+    this.targetEntity = targetEntity;
+    this.gravity = this.targetEntity.game.currentMode.gravity;
+  }
+}
+
+class LifeStealParticle extends OrbParticle {
+  constructor(sourceHealth, x, y, w, h, targetEntity) {
+    super(x, y, w, h, targetEntity);
+    this.sourceHealth = sourceHealth;
+    this.detectRect = new Rect(0, 0, 100, 100);
+    this.detectRect.x = this.x - this.detectRect.w / 2;
+    this.detectRect.y = this.y - this.detectRect.h / 2;
+
+    this.game = this.targetEntity.game;
+
+    this.tileCollisionHandeler = new TileCollisionHandeler(
+      this,
+      this.game.currentMode.tileMap.tileW,
+      this.game.currentMode.tileMap.tileH,
+    );
+
+    this.camera = this.game.currentMode.camera;
+
+    // Initial burst
+    this.xVelocity = (Math.random() - 0.5) * 300;
+    this.yVelocity = (Math.random() - 0.5) * 250;
+    this.frictionalFactor = 1;
+    this.isFollowing = false;
+
+    this.lifeTimer = 3;
+
+    this.size = 1 + Math.random() * 3;
+    this.w = this.size;
+    this.h = this.size;
+    this.heal = this.sourceHealth * 0.07 + this.size;
+    this.healApplied = false;
+
+    this.isDead = false;
+  }
+
+  update(dt) {
+    this.prevX = this.x;
+    this.prevY = this.y;
+    // Movement
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.xVelocity *= this.frictionalFactor;
+    this.x += this.xVelocity * dt;
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.tileCollisionHandeler.resolveHorizontalCollision();
+
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.y += this.yVelocity * dt;
+    this.tileCollisionHandeler.resolveVerticalCollision();
+
+    if (this.yVelocity == 0) {
+      this.onAir = false;
+      this.frictionalFactor = 0.99;
+    } else {
+      this.frictionalFactor = 1;
+    }
+
+    // Gravity only before homing
+    if (!this.isFollowing) {
+      this.yVelocity += this.gravity * dt;
+    }
+
+    // Update detect rect
+    this.detectRect.x = this.x - this.detectRect.w / 2;
+    this.detectRect.y = this.y - this.detectRect.h / 2;
+
+    // Begin following
+    if (!this.isFollowing && this.targetEntity.intersects(this.detectRect)) {
+      this.isFollowing = true;
+    }
+
+    if (this.isFollowing) {
+      const dx = this.targetEntity.centerX() - this.centerX();
+      const dy = this.targetEntity.centerY() - this.centerY();
+
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > 1) {
+        const accel = 1800;
+
+        this.xVelocity += (dx / dist) * accel * dt;
+        this.yVelocity += (dy / dist) * accel * dt;
+
+        // Damping for smooth movement
+        this.xVelocity *= 0.98;
+        this.yVelocity *= 0.98;
+      }
+
+      // Collected
+      if (dist < 10) {
+        this.isDead = true;
+      }
+    }
+  }
+
+  render(ctx) {
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(
+      this.centerX() + this.camera.camOffsetX,
+      this.centerY() + this.camera.camOffsetY,
+      this.w / 2,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    ctx.closePath();
+    ctx.strokeStyle = "red";
+    ctx.strokeRect(
+      this.x + this.camera.camOffsetX,
+      this.y + this.camera.camOffsetY,
+      this.w,
+      this.h,
+    );
+  }
+}
 class BloodParticle {
   constructor(x, y, camera) {
     this.x = x;
@@ -179,6 +304,7 @@ class ParticleManager {
   constructor(game) {
     this.game = game;
     this.bloodParticles = [];
+    this.lifeStealParticles = [];
   }
   update(dt) {
     for (const particle of this.bloodParticles) {
@@ -195,13 +321,21 @@ class ParticleManager {
           particle.h = particle.h * (0.3 + Math.random() * 0.15);
         }
       }
-      if (particle.dead) {
-        this.removeBloodParticle(particle);
+    }
+    for (const particle of this.lifeStealParticles) {
+      particle.update(dt);
+      if (particle.isDead && !particle.healApplied) {
+        particle.healApplied = true;
+        this.game.currentMode.player.heal(particle.heal);
       }
     }
+    this.filterDeadParticles();
   }
   render(ctx) {
     for (const particle of this.bloodParticles) {
+      particle.render(ctx);
+    }
+    for (const particle of this.lifeStealParticles) {
       particle.render(ctx);
     }
   }
@@ -210,9 +344,21 @@ class ParticleManager {
       new BloodParticle(x, y, this.game.currentMode.camera),
     );
   }
-  removeBloodParticle(particle) {
-    let id = this.bloodParticles.indexOf(particle);
-    this.bloodParticles.splice(id, 1);
+  filterDeadParticles() {
+    for (let i = this.bloodParticles.length - 1; i >= 0; i--) {
+      const bloodParticle = this.bloodParticles[i];
+
+      if (bloodParticle.isDead) {
+        this.bloodParticles.splice(i, 1);
+      }
+    }
+    for (let i = this.lifeStealParticles.length - 1; i >= 0; i--) {
+      const lifeStealParticle = this.lifeStealParticles[i];
+
+      if (lifeStealParticle.isDead) {
+        this.lifeStealParticles.splice(i, 1);
+      }
+    }
   }
 }
 
@@ -303,7 +449,7 @@ class Decor extends PhysicsRect {
   }
 }
 class TileMap {
-  constructor(game, tileW, tileH, camera, path = null) {
+  constructor(game, tileW, tileH, camera) {
     this.game = game;
     this.camera = camera;
     this.tileW = tileW;
@@ -324,10 +470,7 @@ class TileMap {
     this.visibleTop = 0;
     this.visibleBottom = 0;
 
-    if (path != null) {
-      //this.loadTileMap(path);
-      this.loadTileMap2(path);
-    }
+    this.waveData = null;
   }
   async loadTileMap(path) {
     const res = await fetch(path);
@@ -371,7 +514,7 @@ class TileMap {
     this.tileH = data.tileH;
     const onGridTilesData = data.tileMap;
     const offGridTilesData = data.offGridTiles || [];
-    const spawnners = data.spawnners;
+    this.waveData = data.waveData;
 
     for (const tile of Object.values(onGridTilesData)) {
       const tileType = tile.type;
@@ -438,51 +581,7 @@ class TileMap {
         ),
       );
     }
-    for (const entity of Object.values(spawnners)) {
-      if (entity.type == "robber") {
-        this.game.currentMode.enemies.push(
-          new Robber(
-            this.game,
-            entity.pos[0] * 2,
-            entity.pos[1] * 2,
-            this.game.currentMode.playerW,
-            this.game.currentMode.playerH,
-          ),
-        );
-      }
-    }
     //this.tileSize = data.tile_size || 16;
-  }
-  extract(idPair, keep = false) {
-    const matches = [];
-
-    this.offGridTiles = this.offGridTiles.filter((tile) => {
-      if (
-        idPair.some((pair) => pair[0] === tile.type && pair[1] === tile.variant)
-      ) {
-        matches.push({ ...tile, pos: [tile.pos[0] * 2, tile.pos[1] * 2] });
-        return keep; // keep = false → remove it
-      }
-      return true; // keep tiles that don't match
-    });
-
-    for (let loc in this.tilemap) {
-      const tile = this.tilemap[loc];
-      if (
-        idPair.some((pair) => pair[0] === tile.type && pair[1] === tile.variant)
-      ) {
-        const copiedTile = { ...tile, pos: [...tile.pos] };
-        copiedTile.pos[0] *= this.tileSize;
-        copiedTile.pos[1] *= this.tileSize;
-        matches.push(copiedTile);
-
-        if (!keep) {
-          delete this.tilemap[loc];
-        }
-      }
-    }
-
-    return matches;
   }
 
   update(dt) {
@@ -589,12 +688,12 @@ class TileCollisionHandeler {
     for (const tile of this.physicsRectAround) {
       if (tile.intersects(this.entity)) {
         //horisontal resolve
-        if (this.entity.direction == 1) {
+        if (this.entity.prevX + this.entity.w <= tile.left()) {
+          // Came from left
           this.entity.x = tile.left() - this.entity.w;
-          console.log(tile.x + "," + tile.y + "resolved to right");
-        } else if (this.entity.direction == -1) {
+        } else if (this.entity.prevX >= tile.right()) {
+          // Came from right
           this.entity.x = tile.right();
-          console.log(tile.x + "," + tile.y + "resolved to left");
         }
       }
     }
@@ -709,7 +808,9 @@ class BulletHandeler {
         if (bullet.intersects(this.entity.game.currentMode.player)) {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
-            this.entity.game.currentMode.player.takeDamage();
+            this.entity.game.currentMode.player.takeDamage(
+              bullet.baseDamage * 0.5,
+            );
             this.entity.game.applyScreenShake(10);
             for (let i = 0; i < 25; i++) {
               this.entity.game.currentMode.particleManager.addBloodParticle(
@@ -784,7 +885,10 @@ class Player extends PhysicsRect {
     this.gunRecoilFactor = 1; // making movement speed slower
 
     //health dependencies
-    this.baseHealth = 100;
+    let fullHealth = 100;
+    this.healthBarManager = new HealthBarManager(this, fullHealth);
+    this.healthBarManager.setColor("green");
+    this.currentHealth = this.healthBarManager.fullHealth;
 
     //visuals
     this.img = null;
@@ -822,12 +926,20 @@ class Player extends PhysicsRect {
     this.bulletHandeler = new BulletHandeler(this);
     this.takingDamage = false;
     this.takingDamageTimer = 0;
+    this.damageFlashColor = "red";
 
     //card effect dependencies
     this.damageMultiplier = 1;
     this.damageTakenMultiplier = 1;
+    this.canLifesteal = false;
+    this.tankiness = 1;
+    this.isHealing = false;
+    this.healingTimer = 0;
+    this.healFlashColor = "green";
   }
   update(dt) {
+    this.prevX = this.x;
+    this.prevY = this.y;
     // horizontal movement
     let left = this.game.globalInputs.leftPressed ? 1 : 0;
     let right = this.game.globalInputs.rightPressed ? 1 : 0;
@@ -911,14 +1023,29 @@ class Player extends PhysicsRect {
       this.flashColorSwapTimer -= dt;
       if (this.flashColorSwapTimer <= 0) {
         this.flashColorSwapTimer = this.flashColorSwapTime;
-        if (this.flashColor == "red") {
+        if (this.flashColor == this.damageFlashColor) {
           this.flashColor = "white";
         } else {
-          this.flashColor = "red";
+          this.flashColor = this.damageFlashColor;
         }
       }
     }
-
+    if (this.isHealing) {
+      this.healingTimer -= dt;
+      if (this.healingTimer <= 0) {
+        this.isHealing = false;
+      }
+      this.flashColorSwapTimer -= dt;
+      if (this.flashColorSwapTimer <= 0) {
+        this.flashColorSwapTimer = this.flashColorSwapTime;
+        if (this.flashColor == this.healFlashColor) {
+          this.flashColor = "white";
+        } else {
+          this.flashColor = this.healFlashColor;
+        }
+      }
+    }
+    this.healthBarManager.update(dt);
     this.updateAnimationState(dt);
 
     this.prevX = this.x;
@@ -1047,9 +1174,18 @@ class Player extends PhysicsRect {
 
     this.animationPlayer.update(dt);
   }
-  takeDamage() {
+  takeDamage(damage) {
     this.takingDamage = true;
     this.takingDamageTimer = 0.2;
+    this.currentHealth = Math.max(this.currentHealth - damage, 0);
+  }
+  heal(heal) {
+    this.isHealing = true;
+    this.healingTimer = 0.2;
+    this.currentHealth = Math.min(
+      this.currentHealth + heal,
+      this.healthBarManager.fullHealth,
+    );
   }
   render(ctx) {
     this.img = this.animationPlayer.getCurrentFrame();
@@ -1062,15 +1198,15 @@ class Player extends PhysicsRect {
       this.animationPlayer.animation.yOffset +
       this.game.currentMode.camera.camOffsetY;
     if (this.img != null) {
-      if (this.takingDamage) {
+      if (this.takingDamage || this.isHealing) {
         if (this.flip) {
           ctx.save();
           ctx.translate(drawX + this.img.width, drawY);
           ctx.scale(-1, 1);
-          this.renderHurtFlash(ctx, this.img, 0, 0, this.flashColor);
+          this.renderFlash(ctx, this.img, 0, 0, this.flashColor);
           ctx.restore();
         } else {
-          this.renderHurtFlash(ctx, this.img, drawX, drawY, this.flashColor);
+          this.renderFlash(ctx, this.img, drawX, drawY, this.flashColor);
         }
       } else if (this.flip) {
         ctx.save();
@@ -1097,8 +1233,9 @@ class Player extends PhysicsRect {
       ctx.fillRect(this.x, this.y, this.w, this.h);
     }
     this.bulletHandeler.render(ctx);
+    this.healthBarManager.render(ctx);
   }
-  renderHurtFlash(ctx, img, x, y, flashColor) {
+  renderFlash(ctx, img, x, y, flashColor) {
     this.offscreenCanvas.width = img.width;
     this.offscreenCanvas.height = img.height;
     this.offscreenCtx.clearRect(0, 0, img.width, img.height);
@@ -1114,6 +1251,10 @@ class Player extends PhysicsRect {
       case "glass_cannon":
         this.damageMultiplier = 2;
         this.damageTakenMultiplier = 2;
+        break;
+      case "vampire":
+        this.canLifesteal = true;
+        this.damageMultiplier = this.damageMultiplier * 0.75;
         break;
     }
   }
@@ -1205,38 +1346,42 @@ const CharacterAnimState = {
 };
 
 class HealthBarManager {
-  constructor(entity, baseHealth) {
+  constructor(entity, fullHealth) {
     this.entity = entity;
-    this.baseHealth = baseHealth;
+    this.fullHealth = fullHealth;
     this.healthBar = new Rect(0, 0, this.entity.w + 5, 3);
     this.camera = this.entity.game.currentMode.camera;
-    this.baseWidth = this.healthBar.w;
+    this.renderW = this.healthBar.w;
+    this.healthColor = "red";
   }
   update(dt) {
-    this.healthBar.x = this.entity.centerX() - this.baseWidth / 2;
+    this.healthBar.x = this.entity.centerX() - this.healthBar.w / 2;
     this.healthBar.y = this.entity.top() - this.healthBar.h - 5;
-    this.healthBar.w =
-      (this.baseWidth / this.baseHealth) * this.entity.currentHealth;
+    this.renderW =
+      (this.healthBar.w / this.fullHealth) * this.entity.currentHealth;
   }
   render(ctx) {
     if (this.entity.takingDamage) {
       ctx.fillStyle = "white";
     } else {
-      ctx.fillStyle = "red";
+      ctx.fillStyle = this.healthColor;
     }
     ctx.fillRect(
       this.healthBar.x + this.camera.camOffsetX,
       this.healthBar.y + this.camera.camOffsetY,
-      this.healthBar.w,
+      this.renderW,
       this.healthBar.h,
     );
     ctx.strokeStyle = "black";
     ctx.strokeRect(
       this.healthBar.x + this.camera.camOffsetX,
       this.healthBar.y + this.camera.camOffsetY,
-      this.baseWidth,
+      this.healthBar.w,
       this.healthBar.h,
     );
+  }
+  setColor(color) {
+    this.healthColor = color;
   }
 }
 class Robber extends Character {
@@ -1252,9 +1397,9 @@ class Robber extends Character {
     this.onAir = false;
     this.entityType = EntityType.ROBBER;
     //health
-    let baseHealth = 100;
-    this.healthBarManager = new HealthBarManager(this, baseHealth);
-    this.currentHealth = this.healthBarManager.baseHealth;
+    let fullHealth = 100;
+    this.healthBarManager = new HealthBarManager(this, fullHealth);
+    this.currentHealth = this.healthBarManager.fullHealth;
     this.isDead = false;
     this.deathTransitionStarted = false;
     this.deathTransitionTimer = this.game.assets.robberDeath.animCompletionTime;
@@ -1297,6 +1442,21 @@ class Robber extends Character {
       !this.takingDamage
     ) {
       this.deathTransitionStarted = true;
+      //Adding lifesteal orbs
+      if (this.game.currentMode.player.canLifesteal) {
+        for (let i = 0; i < 5; i++) {
+          this.game.currentMode.particleManager.lifeStealParticles.push(
+            new LifeStealParticle(
+              this.healthBarManager.fullHealth,
+              this.centerX(),
+              this.centerY(),
+              5,
+              5,
+              this.game.currentMode.player,
+            ),
+          );
+        }
+      }
     }
     if (this.deathTransitionStarted) {
       this.deathTransitionTimer = Math.max(this.deathTransitionTimer - dt, 0);
@@ -1306,6 +1466,8 @@ class Robber extends Character {
       this.animationPlayer.update(dt);
       return;
     }
+    this.prevX = this.x;
+    this.prevY = this.y;
     //horizontal movement
     this.x += this.xVelocity * this.direction * dt;
 
@@ -1731,8 +1893,8 @@ class Wheel {
     this.unitPartAngle = (Math.PI * 2) / this.partition;
     this.wheelColours = ["#FF6B6B", "#4ECDC4", "#FFE66D"];
 
-    this.isActive = true;
-    this.isVisible = true;
+    this.isActive = false; //can be clicked or not
+    this.isVisible = false;
 
     //pointer
     this.lPointerIndex = null;
@@ -1803,12 +1965,16 @@ class Wheel {
       }
     } else {
       this.slideOffset = 0;
+      if (!this.cardSelected) {
+        this.isActive = true;
+      }
     }
     if (this.transitionProgress >= 1) {
       this.inTransition = false;
 
       if (this.transitionDirection === "down") {
         this.resetWheel();
+        this.game.currentMode.loadNextWave();
       }
     }
 
@@ -1889,7 +2055,6 @@ class Wheel {
           this.transitionDirection = "down";
           this.transitionProgress = 0;
           this.inTransition = true;
-          this.isVisible = false;
         } else if (
           rightCard.containsPoint(
             this.game.globalInputs.mouseX,
@@ -1903,7 +2068,6 @@ class Wheel {
           this.transitionDirection = "down";
           this.transitionProgress = 0;
           this.inTransition = true;
-          this.isVisible = false;
         }
       }
     }
@@ -1945,13 +2109,15 @@ class Wheel {
     this.animatingWinnerSection = false;
     this.alphaIndex = 0;
 
-    this.isActive = true;
+    this.isActive = false;
+    this.isVisible = false;
 
     this.transitionDirection = "up";
     this.transitionProgress = 0;
+    this.inTransition = true;
   }
   render(ctx) {
-    if(!this.isVisible){
+    if (!this.isVisible) {
       return;
     }
     ctx.save();
@@ -2240,6 +2406,9 @@ class EnemyHandeler {
     for (const deadBody of this.mode.deadBodies) {
       deadBody.update(dt);
     }
+    if (this.mode.enemies.length == 0) {
+      this.mode.waveCompleted = true;
+    }
   }
   render(ctx) {
     for (const enemy of this.mode.enemies) {
@@ -2260,41 +2429,39 @@ class EnemyHandeler {
     }
   }
 }
+
+class Wave {
+  constructor(mode, wavesData) {
+    this.mode = mode;
+    this.wavesData = wavesData;
+  }
+}
 class PlatformerMode {
   constructor(game) {
     this.game = game;
     this.initialRenderHoldTimer = 0.3; //sec
     this.renderOnHold = true;
   }
-  init() {
+  async init() {
     this.modeType = GameState.PLATFORMER;
     this.gravity = 600; //px per sec square
     //entities
     this.playerW = 16;
     this.playerH = 42;
-    this.player = new Player(this.game, 20, 20, this.playerW, this.playerH);
-
     //camera
-    this.camera = new Camera(
-      this.player.centerX(),
-      this.player.centerY(),
-      10,
-      10,
-      this.game,
-      this.player,
-    );
+    this.camera = new Camera(0, 0, 10, 10, this.game, null);
+    this.player = new Player(this.game, 20, 20, this.playerW, this.playerH);
+    this.camera.entity = this.player;
     //tileMap
-    this.tileMap = new TileMap(
-      this.game,
-      32,
-      32,
-      this.camera,
-      "assets/tileMaps/0.json",
-    );
+    this.tileMap = new TileMap(this.game, 32, 32, this.camera);
+    await this.tileMap.loadTileMap2("assets/tileMaps/0.json");
     this.enemies = [];
     this.deadBodies = [];
     this.enemyHandeler = new EnemyHandeler(this);
+    this.currentWave = 0;
+    this.waveCompleted = false;
 
+    this.loadWave(this.tileMap.waveData[this.currentWave]);
     //Managers
     this.particleManager = new ParticleManager(this.game);
 
@@ -2313,12 +2480,19 @@ class PlatformerMode {
         this.renderOnHold = false;
       }
     }
-    this.player.update(dt);
-    this.camera.update(dt);
-    this.tileMap.update(dt);
-    this.enemyHandeler.update(dt);
-    this.particleManager.update(dt);
-    this.wheel.update(dt);
+
+    if (this.waveCompleted) {
+      if (!this.wheel.isVisible) {
+        this.wheel.isVisible = true;
+      }
+      this.wheel.update(dt);
+    } else {
+      this.player.update(dt);
+      this.camera.update(dt);
+      this.tileMap.update(dt);
+      this.enemyHandeler.update(dt);
+      this.particleManager.update(dt);
+    }
   }
   render(ctx) {
     if (this.renderOnHold) {
@@ -2331,6 +2505,29 @@ class PlatformerMode {
     this.player.render(ctx);
     this.particleManager.render(ctx);
     this.wheel.render(ctx);
+  }
+  loadWave(waveData) {
+    for (const entity of Object.values(waveData)) {
+      if (entity.type == "robber") {
+        this.enemies.push(
+          new Robber(
+            this.game,
+            entity.pos[0] * 2,
+            entity.pos[1] * 2,
+            this.game.currentMode.playerW,
+            this.game.currentMode.playerH,
+          ),
+        );
+      }
+    }
+  }
+  loadNextWave() {
+    this.waveCompleted = false;
+    this.currentWave = Math.min(
+      this.currentWave + 1,
+      this.tileMap.waveData.length - 1,
+    );
+    this.loadWave(this.tileMap.waveData[this.currentWave]);
   }
 }
 class Game {

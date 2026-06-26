@@ -194,14 +194,29 @@
     { "type": "largeDecor", "variant": 2, "pos": [118.0, 37.5] },
     { "type": "largeDecor", "variant": 2, "pos": [340.0, 117.0] }
   ],
-  "spawnners" : [
+  "spawnners": [
+    { "type": "robber", "pos": [180.5, 190.5] },
+    { "type": "robber", "pos": [59.5, 159.5] },
+    { "type": "robber", "pos": [472.0, 111.0] },
     { "type": "robber", "pos": [180.5, 190.5] },
     { "type": "robber", "pos": [70, 40] }
   ],
-  "backup" : [
+  "backup": [
     { "type": "robber", "pos": [228.5, 192.5] },
     { "type": "robber", "pos": [59.5, 159.5] },
     { "type": "robber", "pos": [472.0, 111.0] },
     { "type": "robber", "pos": [180.5, 190.5] }
+  ],
+  "waveData": [
+    [
+      { "type": "robber", "pos": [180.5, 190.5] },
+      { "type": "robber", "pos": [59.5, 159.5] },
+      { "type": "robber", "pos": [472.0, 111.0] },
+      { "type": "robber", "pos": [180.5, 190.5] },
+      { "type": "robber", "pos": [70, 40] }
+    ],
+    [
+      { "type": "robber", "pos": [70, 40] }
+    ]
   ]
 }
