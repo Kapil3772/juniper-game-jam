@@ -71,7 +71,44 @@ class GameImage {
     return (await Promise.all(promises)).filter(Boolean);
   }
 }
-
+class GameButton extends Rect {
+  constructor(game, x, y, w, h, text) {
+    super(x, y, w, h);
+    this.game = game;
+    this.text = text;
+    this.bgColor = "#369E56";
+    this.hoverColor = "#46C26A";
+    this.textColor = "white";
+    this.borderColor = "white";
+    this.hovered = false;
+  }
+  containsPoint(x, y) {
+    return (
+      x >= this.x && x <= this.x + this.w && y >= this.y && y <= this.y + this.h
+    );
+  }
+  update() {
+    this.hovered = this.containsPoint(
+      this.game.globalInputs.mouseX,
+      this.game.globalInputs.mouseY,
+    );
+  }
+  isClicked() {
+    return this.game.globalInputs.attackPressed && this.hovered;
+  }
+  render(ctx) {
+    ctx.fillStyle = this.hovered ? this.hoverColor : this.bgColor;
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = this.borderColor;
+    ctx.strokeRect(this.x, this.y, this.w, this.h);
+    ctx.fillStyle = this.textColor;
+    ctx.font = "bold 28px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.text, this.x + this.w / 2, this.y + this.h / 2);
+  }
+}
 class ProgressBar extends Rect {
   constructor(entity, x, y, w, h, baseProgress = 0) {
     super(x, y, w, h);
@@ -796,7 +833,7 @@ class BulletHandeler {
             if (!bullet.damageApplied && !enemy.deathTransitionStarted) {
               bullet.damageApplied = true;
               enemy.takeDamage(
-                bullet.baseDamage * this.entity.damageMultiplier * 10,
+                bullet.baseDamage * this.entity.damageMultiplier,
               );
               this.entity.game.applyScreenShake(8);
               for (let i = 0; i < 25; i++) {
@@ -814,7 +851,7 @@ class BulletHandeler {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
             this.entity.game.currentMode.player.takeDamage(
-              bullet.baseDamage * 0.5,
+              bullet.baseDamage,
             );
             this.entity.game.applyScreenShake(10);
             for (let i = 0; i < 25; i++) {
@@ -1376,24 +1413,18 @@ class HealthBarManager {
       (this.healthBar.w / this.fullHealth) * this.entity.currentHealth;
   }
   render(ctx) {
+    const drawX = this.healthBar.x + this.camera.camOffsetX;
+    const drawY = this.healthBar.y + this.camera.camOffsetY;
     if (this.entity.takingDamage) {
       ctx.fillStyle = "white";
     } else {
       ctx.fillStyle = this.healthColor;
     }
-    ctx.fillRect(
-      this.healthBar.x + this.camera.camOffsetX,
-      this.healthBar.y + this.camera.camOffsetY,
-      this.renderW,
-      this.healthBar.h,
-    );
+    ctx.lineWidth = 1;
+    ctx.fillRect(drawX, drawY, this.renderW, this.healthBar.h);
+
     ctx.strokeStyle = "black";
-    ctx.strokeRect(
-      this.healthBar.x + this.camera.camOffsetX,
-      this.healthBar.y + this.camera.camOffsetY,
-      this.healthBar.w,
-      this.healthBar.h,
-    );
+    ctx.strokeRect(drawX, drawY, this.healthBar.w, this.healthBar.h);
   }
   setColor(color) {
     this.healthColor = color;
@@ -2108,7 +2139,6 @@ class Wheel {
   }
   resetWheel() {
     this.angularVelocity = 0;
-    this.angle = 0;
 
     this.spinHandeled = false;
     this.indexCalculated = false;
@@ -2385,18 +2415,99 @@ class LoadingScreen {
     this.loadingBar.y = this.game.vCanvasH - this.loadingBar.h - 10;
     this.img = backGroundImg;
     this.inLoadingState = true;
+
+    // menu state
+    this.loadingDone = false;
+    this.showMenu = false;
+    this.time = 0;
+    this.playButton = null; // created once assets are done
   }
   update(dt) {
-    this.loadingBar.update(dt);
-    if (this.loadingBar.isDone) {
-      console.log(this.game.currentMode);
-      this.game.currentMode = new PlatformerMode(this.game);
-      this.game.currentMode.init();
-      console.log(this.game.currentMode);
+    if (!this.loadingDone) {
+      this.loadingBar.update(dt);
+      if (this.loadingBar.isDone) {
+        this.loadingDone = true;
+        this.showMenu = true;
+        this.playButton = new GameButton(
+          this.game,
+          this.game.vCanvasW / 2 - 100,
+          this.game.vCanvasH * 0.65,
+          200,
+          60,
+          "PLAY",
+        );
+      }
+    } else if (this.showMenu) {
+      this.time += dt;
+      this.playButton.update();
+      if (this.playButton.isClicked()) {
+        this.showMenu = false;
+        this.game.currentMode = new PlatformerMode(this.game);
+        this.game.currentMode.init();
+      }
     }
   }
   render(ctx) {
-    this.loadingBar.render(ctx);
+    if (!this.loadingDone) {
+      ctx.fillStyle = "#17141f";
+      ctx.fillRect(0, 0, this.game.vCanvasW, this.game.vCanvasH);
+      this.loadingBar.render(ctx);
+      return;
+    }
+    if (this.showMenu) {
+      ctx.fillStyle = "#17141f";
+      ctx.fillRect(0, 0, this.game.vCanvasW, this.game.vCanvasH);
+
+      // stars
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      for (let i = 0; i < 80; i++) {
+        const x = (i * 173) % this.game.vCanvasW;
+        const y = (i * 97) % this.game.vCanvasH;
+        ctx.fillRect(x, y, 2, 2);
+      }
+
+      const titleY = this.game.vCanvasH * 0.25 + Math.sin(this.time * 2) * 8;
+      ctx.textAlign = "center";
+
+      ctx.fillStyle = "#000";
+      ctx.font = "72px Arial";
+      ctx.fillText("SPIN TO WIN", this.game.vCanvasW / 2 + 4, titleY + 4);
+
+      ctx.fillStyle = "#FFD54A";
+      ctx.fillText("SPIN TO WIN", this.game.vCanvasW / 2, titleY);
+
+      ctx.font = "24px Arial";
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillText("Juniper Game Jam", this.game.vCanvasW / 2, titleY + 45);
+
+      ctx.font = "22px Arial";
+      ctx.fillStyle = "#CCCCCC";
+      ctx.fillText(
+        "WASD - Move",
+        this.game.vCanvasW / 2,
+        this.game.vCanvasH * 0.48,
+      );
+      ctx.fillText(
+        "Left Click - Attack",
+        this.game.vCanvasW / 2,
+        this.game.vCanvasH * 0.53,
+      );
+      ctx.fillText(
+        "Right Click - Aim",
+        this.game.vCanvasW / 2,
+        this.game.vCanvasH * 0.58,
+      );
+
+      this.playButton.render(ctx);
+
+      ctx.font = "18px Arial";
+      ctx.fillStyle = "#AAAAAA";
+      ctx.fillText(
+        "Defeat enemies • Spin the wheel • Build your deck",
+        this.game.vCanvasW / 2,
+        this.game.vCanvasH - 40,
+      );
+    }
   }
   incrementProgress(progress, info = null) {
     this.loadingBar.incrementProgress(progress);
@@ -2405,7 +2516,6 @@ class LoadingScreen {
     }
   }
 }
-
 class EnemyHandeler {
   constructor(mode) {
     this.mode = mode;
@@ -2421,7 +2531,7 @@ class EnemyHandeler {
     for (const deadBody of this.mode.deadBodies) {
       deadBody.update(dt);
     }
-    if (this.mode.enemies.length == 0) {
+    if (this.mode.enemies.length == 0 && !this.mode.waveCompleted) {
       this.mode.waveCompleted = true;
     }
   }
@@ -2480,6 +2590,9 @@ class PlatformerMode {
     this.waveTransitionTimer = this.waveTransitionTime;
     this.waveLoaded = false;
 
+    //wincondition
+    this.wonGame = false;
+
     this.loadWave(this.tileMap.waveData[this.currentWave]);
     //Managers
     this.particleManager = new ParticleManager(this.game);
@@ -2493,6 +2606,10 @@ class PlatformerMode {
     );
   }
   update(dt) {
+    if (this.wonGame) {
+      this.updateWinScreen(dt);
+      return;
+    }
     if (this.renderOnHold) {
       this.initialRenderHoldTimer -= dt;
       if (this.initialRenderHoldTimer <= 0) {
@@ -2504,6 +2621,10 @@ class PlatformerMode {
       if (this.waveTransitionTimer <= 0) {
         if (!this.wheel.isVisible) {
           this.wheel.isVisible = true;
+          this.currentWave += 1;
+          if (this.currentWave > this.tileMap.waveData.length - 1) {
+            this.wonGame = true;
+          }
         }
         this.player.inputBlocked = true;
         this.wheel.update(dt);
@@ -2516,6 +2637,10 @@ class PlatformerMode {
     this.particleManager.update(dt);
   }
   render(ctx) {
+    if (this.wonGame) {
+      this.renderWinScreen(ctx);
+      return;
+    }
     if (this.renderOnHold) {
       return;
     }
@@ -2543,10 +2668,6 @@ class PlatformerMode {
     }
   }
   loadNextWave() {
-    this.currentWave = Math.min(
-      this.currentWave + 1,
-      this.tileMap.waveData.length - 1,
-    );
     this.loadWave(this.tileMap.waveData[this.currentWave]);
   }
   resetForNextWave() {
@@ -2555,6 +2676,64 @@ class PlatformerMode {
     this.waveTransitionTimer = this.waveTransitionTime;
     this.player.inputBlocked = false;
     this.loadNextWave();
+  }
+  updateWinScreen(dt) {
+    this.time = (this.time || 0) + dt;
+    if (!this.winRestartButton) {
+      this.winRestartButton = new GameButton(
+        this.game,
+        this.game.vCanvasW / 2 - 110,
+        this.game.vCanvasH * 0.65,
+        220,
+        60,
+        "PLAY AGAIN",
+      );
+    }
+    this.winRestartButton.update();
+    if (this.winRestartButton.isClicked()) {
+      this.game.currentMode = new PlatformerMode(this.game);
+      this.game.currentMode.init();
+    }
+  }
+  renderWinScreen(ctx) {
+    ctx.fillStyle = "#0d1f0d";
+    ctx.fillRect(0, 0, this.game.vCanvasW, this.game.vCanvasH);
+
+    // stars
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    for (let i = 0; i < 80; i++) {
+      const x = (i * 173) % this.game.vCanvasW;
+      const y = (i * 97) % this.game.vCanvasH;
+      ctx.fillRect(x, y, 2, 2);
+    }
+
+    const t = this.time || 0;
+    const titleY = this.game.vCanvasH * 0.28 + Math.sin(t * 2) * 6;
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "#1a4a1a";
+    ctx.font = "bold 80px Arial";
+    ctx.fillText("YOU WIN!", this.game.vCanvasW / 2 + 4, titleY + 4);
+
+    ctx.fillStyle = "#54D46A";
+    ctx.fillText("YOU WIN!", this.game.vCanvasW / 2, titleY);
+
+    ctx.font = "24px Arial";
+    ctx.fillStyle = "#CCCCCC";
+    ctx.fillText("All waves cleared!", this.game.vCanvasW / 2, titleY + 50);
+
+    // stats
+    ctx.font = "20px Arial";
+    ctx.fillStyle = "#AAAAAA";
+    ctx.fillText(
+      `Health remaining: ${Math.ceil(this.player.currentHealth)}`,
+      this.game.vCanvasW / 2,
+      titleY + 90,
+    );
+
+    if (this.winRestartButton) {
+      this.winRestartButton.render(ctx);
+    }
   }
 }
 class Game {
@@ -2923,7 +3102,7 @@ class Game {
       ),
     };
     this.cardData = {
-      data0: {
+      data1: {
         id: "vampire",
         buffLabel: "Vampire",
         buffDetail: "Heal 1 HP for every kill",
@@ -2931,7 +3110,7 @@ class Game {
         debuffDetail: "Deal 25% less damage",
       },
 
-      data1: {
+      data0: {
         id: "glass_cannon",
         buffLabel: "Glass Cannon",
         buffDetail: "Deal 2X damage",
