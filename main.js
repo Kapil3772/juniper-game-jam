@@ -1178,6 +1178,7 @@ class Player extends PhysicsRect {
           break;
         case PlayerAnimState.RUN_FIRE:
           this.animationPlayer.setAnimation(this.game.assets.playerRunFire);
+          break;
         case PlayerAnimState.WALK_FIRE:
           this.animationPlayer.setAnimation(this.game.assets.playerWalkFire);
           break;
@@ -2635,7 +2636,9 @@ class Game {
     window.addEventListener("mouseup", (e) => {
       if (e.button === 0) {
         this.globalInputs.attackPressed = false;
-        this.currentMode.player.attackHandeled = false;
+        if (this.currentMode.player) {
+          this.currentMode.player.attackHandeled = false;
+        }
       } else if (e.button === 2) {
         this.globalInputs.aimPressed = false;
         this.cameraSwapped = false;
