@@ -209,10 +209,6 @@
   ],
   "waveData": [
     [
-      { "type": "robber", "pos": [180.5, 190.5] },
-      { "type": "robber", "pos": [59.5, 159.5] },
-      { "type": "robber", "pos": [472.0, 111.0] },
-      { "type": "robber", "pos": [180.5, 190.5] },
       { "type": "robber", "pos": [70, 40] }
     ],
     [

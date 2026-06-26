@@ -149,7 +149,7 @@ class LifeStealParticle extends OrbParticle {
     this.frictionalFactor = 1;
     this.isFollowing = false;
 
-    this.lifeTimer = 3;
+    this.lifeTimer = 8;
 
     this.size = 1 + Math.random() * 3;
     this.w = this.size;
@@ -181,6 +181,11 @@ class LifeStealParticle extends OrbParticle {
       this.frictionalFactor = 1;
     }
 
+    this.lifeTimer = Math.max(this.lifeTimer - dt, 0);
+
+    if (this.onAir && this.lifeTimer <= 0) {
+      this.isDead = true;
+    }
     // Gravity only before homing
     if (!this.isFollowing) {
       this.yVelocity += this.gravity * dt;
@@ -791,7 +796,7 @@ class BulletHandeler {
             if (!bullet.damageApplied && !enemy.deathTransitionStarted) {
               bullet.damageApplied = true;
               enemy.takeDamage(
-                bullet.baseDamage * this.entity.damageMultiplier,
+                bullet.baseDamage * this.entity.damageMultiplier * 10,
               );
               this.entity.game.applyScreenShake(8);
               for (let i = 0; i < 25; i++) {
@@ -907,6 +912,7 @@ class Player extends PhysicsRect {
     this.flashColorSwapTimer = this.flashColorSwapTime; //secs
 
     //inputs, states and timers
+    this.inputBlocked = false;
     this.isJumping = false;
     this.isFalling = false;
     this.isRunning = false;
@@ -937,13 +943,16 @@ class Player extends PhysicsRect {
     this.healingTimer = 0;
     this.healFlashColor = "green";
   }
+  jump() {
+    this.yVelocity = this.jumpVelocity;
+  }
   update(dt) {
     this.prevX = this.x;
     this.prevY = this.y;
     // horizontal movement
     let left = this.game.globalInputs.leftPressed ? 1 : 0;
     let right = this.game.globalInputs.rightPressed ? 1 : 0;
-    this.direction = right - left;
+    this.direction = this.inputBlocked ? 0 : right - left;
     if (this.direction != 0) {
       this.flip = this.direction == 1 ? true : false; //true means player is facing right
     }
@@ -985,10 +994,11 @@ class Player extends PhysicsRect {
 
     if (
       this.game.globalInputs.jumpPressed &&
-      !this.game.globalInputs.jumpHandeled
+      !this.game.globalInputs.jumpHandeled &&
+      !this.inputBlocked
     ) {
       this.game.globalInputs.jumpHandeled = true;
-      this.yVelocity = this.jumpVelocity;
+      this.jump();
     }
 
     this.isAiming = this.game.globalInputs.aimPressed ? true : false;
@@ -1002,7 +1012,11 @@ class Player extends PhysicsRect {
         this.holdAnimation = false;
       }
     }
-    if (this.game.globalInputs.attackPressed && !this.attackHandeled) {
+    if (
+      this.game.globalInputs.attackPressed &&
+      !this.attackHandeled &&
+      !this.inputBlocked
+    ) {
       this.attackHandeled = true;
       this.isAttacking = true;
       if (!this.attackTimerStarted) {
@@ -1974,7 +1988,7 @@ class Wheel {
 
       if (this.transitionDirection === "down") {
         this.resetWheel();
-        this.game.currentMode.loadNextWave();
+        this.game.currentMode.resetForNextWave();
       }
     }
 
@@ -2460,6 +2474,10 @@ class PlatformerMode {
     this.enemyHandeler = new EnemyHandeler(this);
     this.currentWave = 0;
     this.waveCompleted = false;
+    this.nextWaveLoadable = false;
+    this.waveTransitionTime = 2;
+    this.waveTransitionTimer = this.waveTransitionTime;
+    this.waveLoaded = false;
 
     this.loadWave(this.tileMap.waveData[this.currentWave]);
     //Managers
@@ -2480,19 +2498,21 @@ class PlatformerMode {
         this.renderOnHold = false;
       }
     }
-
     if (this.waveCompleted) {
-      if (!this.wheel.isVisible) {
-        this.wheel.isVisible = true;
+      this.waveTransitionTimer = Math.max(this.waveTransitionTimer - dt, 0);
+      if (this.waveTransitionTimer <= 0) {
+        if (!this.wheel.isVisible) {
+          this.wheel.isVisible = true;
+        }
+        this.player.inputBlocked = true;
+        this.wheel.update(dt);
       }
-      this.wheel.update(dt);
-    } else {
-      this.player.update(dt);
-      this.camera.update(dt);
-      this.tileMap.update(dt);
-      this.enemyHandeler.update(dt);
-      this.particleManager.update(dt);
     }
+    this.player.update(dt);
+    this.camera.update(dt);
+    this.tileMap.update(dt);
+    this.enemyHandeler.update(dt);
+    this.particleManager.update(dt);
   }
   render(ctx) {
     if (this.renderOnHold) {
@@ -2522,12 +2542,18 @@ class PlatformerMode {
     }
   }
   loadNextWave() {
-    this.waveCompleted = false;
     this.currentWave = Math.min(
       this.currentWave + 1,
       this.tileMap.waveData.length - 1,
     );
     this.loadWave(this.tileMap.waveData[this.currentWave]);
+  }
+  resetForNextWave() {
+    this.nextWaveLoadable = true;
+    this.waveCompleted = false;
+    this.waveTransitionTimer = this.waveTransitionTime;
+    this.player.inputBlocked = false;
+    this.loadNextWave();
   }
 }
 class Game {
