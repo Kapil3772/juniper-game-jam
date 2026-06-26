@@ -46,8 +46,61 @@ class PhysicsRect extends Rect {
     );
   }
 }
-class GameSound {
-  loadSound(path) {}
+class AudioManager {
+  constructor() {
+    this.sounds = new Map();
+  }
+
+  load(name, path, volume = 1) {
+    return new Promise((resolve, reject) => {
+      const sound = new Audio();
+
+      sound.preload = "auto";
+      sound.volume = volume;
+
+      sound.addEventListener(
+        "canplaythrough",
+        () => {
+          this.sounds.set(name, sound);
+          resolve(sound);
+        },
+        { once: true },
+      );
+
+      sound.addEventListener(
+        "error",
+        () => reject(new Error(`Failed to load ${path}`)),
+        { once: true },
+      );
+
+      sound.src = path;
+      sound.load();
+    });
+  }
+
+  play(name) {
+    const sound = this.sounds.get(name);
+    if (!sound) return;
+
+    const clone = sound.cloneNode();
+    clone.volume = sound.volume;
+    clone.play();
+  }
+
+  stop(name) {
+    const sound = this.sounds.get(name);
+    if (!sound) return;
+
+    sound.pause();
+    sound.currentTime = 0;
+  }
+
+  setVolume(name, volume) {
+    const sound = this.sounds.get(name);
+    if (!sound) return;
+
+    sound.volume = volume;
+  }
 }
 class GameImage {
   loadImage(path) {
@@ -368,6 +421,7 @@ class ParticleManager {
       particle.update(dt);
       if (particle.isDead && !particle.healApplied) {
         particle.healApplied = true;
+        this.game.audioManager.play("lifeStealParticle");
         this.game.currentMode.player.heal(particle.heal);
       }
     }
@@ -832,6 +886,7 @@ class BulletHandeler {
           if (bullet.intersects(enemy)) {
             if (!bullet.damageApplied && !enemy.deathTransitionStarted) {
               bullet.damageApplied = true;
+              this.entity.game.audioManager.play("enemyHurt");
               enemy.takeDamage(
                 bullet.baseDamage * this.entity.damageMultiplier,
               );
@@ -850,10 +905,9 @@ class BulletHandeler {
         if (bullet.intersects(this.entity.game.currentMode.player)) {
           if (!bullet.damageApplied) {
             bullet.damageApplied = true;
-            this.entity.game.currentMode.player.takeDamage(
-              bullet.baseDamage,
-            );
+            this.entity.game.currentMode.player.takeDamage(bullet.baseDamage);
             this.entity.game.applyScreenShake(10);
+            this.entity.game.audioManager.play("hurt0");
             for (let i = 0; i < 25; i++) {
               this.entity.game.currentMode.particleManager.addBloodParticle(
                 this.entity.game.currentMode.player.centerX(),
@@ -931,6 +985,9 @@ class Player extends PhysicsRect {
     this.healthBarManager = new HealthBarManager(this, fullHealth);
     this.healthBarManager.setColor("green");
     this.currentHealth = this.healthBarManager.fullHealth;
+    this.isDead = false;
+    this.deathTransitionStarted = false;
+    this.deathTransitionTimer = 0;
 
     //visuals
     this.img = null;
@@ -938,7 +995,6 @@ class Player extends PhysicsRect {
     this.newAnimState = null;
     this.animationPlayer = new AnimationPlayer();
     this.animationPlayer.setAnimation(this.game.assets.playerIdle);
-    console.log(this.animationPlayer.animation);
     this.flip = false;
 
     //special effects
@@ -986,6 +1042,18 @@ class Player extends PhysicsRect {
   update(dt) {
     this.prevX = this.x;
     this.prevY = this.y;
+
+    if(this.currentHealth<=0){
+      this.isDead = true;
+      this.deathTransitionStarted = true;
+    }
+    if(this.deathTransitionStarted){
+      this.deathTransitionTimer -= dt;
+      if(this.deathTransitionTimer<=0){
+        // finished death animation
+      }
+    }
+    
     // horizontal movement
     let left = this.game.globalInputs.leftPressed ? 1 : 0;
     let right = this.game.globalInputs.rightPressed ? 1 : 0;
@@ -1060,6 +1128,7 @@ class Player extends PhysicsRect {
         this.attackTimer = this.game.assets.playerFire.animCompletionTime;
         this.attackTimerStarted = true;
         this.gunRecoilFactor = this.isRunning ? 0.5 : 0.8;
+        this.game.audioManager.play("shot");
         this.bulletHandeler.addBullet();
         this.game.applyScreenShake(6);
       }
@@ -1785,6 +1854,7 @@ class PopupCard extends Rect {
     this.renderX = 0;
     this.renderY = 0;
     this.hovered = false;
+    this.newState = false;
   }
   containsPoint(mx, my) {
     return (
@@ -1801,10 +1871,14 @@ class PopupCard extends Rect {
 
   update(dt) {
     this.animProgress = Math.min(1, this.animProgress + dt);
-    this.hovered = this.containsPoint(
+    this.newState = this.containsPoint(
       this.game.globalInputs.mouseX,
       this.game.globalInputs.mouseY,
     );
+    if(this.newState != this.hovered){
+      this.hovered = this.newState;
+      this.game.audioManager.play("hover");
+    }
   }
 
   resetAnim() {
@@ -2094,6 +2168,7 @@ class Wheel {
             this.game.globalInputs.mouseY,
           )
         ) {
+          this.game.audioManager.play("selectCard");
           this.cardSelected = true;
           this.selectedCard = leftCard;
           this.popupActive = false;
@@ -2107,6 +2182,7 @@ class Wheel {
             this.game.globalInputs.mouseY,
           )
         ) {
+          this.game.audioManager.play("selectCard");
           this.cardSelected = true;
           this.selectedCard = rightCard;
           this.popupActive = false;
@@ -2566,6 +2642,8 @@ class PlatformerMode {
     this.game = game;
     this.initialRenderHoldTimer = 0.3; //sec
     this.renderOnHold = true;
+    this.isInitialized = false;
+    this.playingAudio = false;
   }
   async init() {
     this.modeType = GameState.PLATFORMER;
@@ -2604,8 +2682,21 @@ class PlatformerMode {
       this.game.vCanvasH / 2,
       this.game.vCanvasW * 0.19,
     );
+
+    //audio
+    this.audioManager = this.game.audioManager;
+    const bg = this.audioManager.sounds.get("ambience");
+    const bg2 = this.audioManager.sounds.get("forestBgm");
+    bg.loop = true;
+    bg2.loop = true;
+    this.audioManager.play("ambience");
+    this.audioManager.play("forestBgm");
+    this.isInitialized = true;
   }
   update(dt) {
+    if (!this.isInitialized) {
+      return;
+    }
     if (this.wonGame) {
       this.updateWinScreen(dt);
       return;
@@ -2637,6 +2728,9 @@ class PlatformerMode {
     this.particleManager.update(dt);
   }
   render(ctx) {
+    if (!this.isInitialized) {
+      return;
+    }
     if (this.wonGame) {
       this.renderWinScreen(ctx);
       return;
@@ -2870,6 +2964,8 @@ class Game {
   }
   async loadAssets() {
     this.loader = new GameImage();
+    this.audioManager = new AudioManager();
+
     const [
       playerIdle,
       playerWalk,
@@ -2922,6 +3018,15 @@ class Game {
       this.loader.loadImagesFromFolder("assets/tiles/stone/", 9),
       this.loader.loadImagesFromFolder("assets/tiles/decor/", 4),
       this.loader.loadImagesFromFolder("assets/tiles/largeDecor/", 3),
+      this.audioManager.load("ambience", "assets/sfx/bgm/ambience.wav"),
+      this.audioManager.load("forestBgm", "assets/sfx/bgm/forestBgm.wav"),
+      this.audioManager.load("shot", "assets/sfx/gunshots/shot.wav"),
+      this.audioManager.load("heavyShot", "assets/sfx/gunshots/heavyShot.wav"),
+      this.audioManager.load("hurt0", "assets/sfx/hurt/0.wav"),
+      this.audioManager.load("lifeStealParticle", "assets/sfx/particleSfx/lifeStealParticle.mp3"),
+      this.audioManager.load("hover", "assets/sfx/ui/hover.mp3"),
+      this.audioManager.load("selectCard", "assets/sfx/ui/selectCard.mp3"),
+      this.audioManager.load("enemyHurt", "assets/sfx/hurt/enemyHurt.mp3"),
     ]);
     //images
     this.playerIdle = playerIdle;
@@ -3101,6 +3206,7 @@ class Game {
         this.playerH,
       ),
     };
+    this.sfx = {};
     this.cardData = {
       data1: {
         id: "vampire",
