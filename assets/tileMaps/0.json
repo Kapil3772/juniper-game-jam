@@ -208,14 +208,14 @@
     { "type": "robber", "pos": [180.5, 190.5] }
   ],
   "waveData": [
+    [{ "type": "robber", "pos": [70, 40] }],
+    [{ "type": "robber", "pos": [70, 40] }],
+    [{ "type": "robber", "pos": [70, 40] }],
     [
-      { "type": "robber", "pos": [70, 40] }
-    ],
-    [
-      { "type": "robber", "pos": [70, 40] }
-    ],
-    [
-      { "type": "robber", "pos": [70, 40] }
+      { "type": "robber", "pos": [70, 40] },
+      { "type": "robber", "pos": [180, 40] },
+      { "type": "robber", "pos": [290, 40] },
+      { "type": "robber", "pos": [400, 40] }
     ]
   ]
 }

@@ -480,6 +480,7 @@ const PlayerAnimState = {
   JUMP_FIRE: "JUMP_FIRE",
   FALL_FIRE: "FALL_FIRE",
   HURT: "HURT",
+  DEATH: "DEATH",
 };
 
 class Tile extends PhysicsRect {
@@ -903,9 +904,15 @@ class BulletHandeler {
         }
       } else if (this.entity.entityType == EntityType.ROBBER) {
         if (bullet.intersects(this.entity.game.currentMode.player)) {
-          if (!bullet.damageApplied) {
+          if (
+            !bullet.damageApplied &&
+            !this.entity.game.currentMode.player.isDead
+          ) {
             bullet.damageApplied = true;
-            this.entity.game.currentMode.player.takeDamage(bullet.baseDamage);
+            this.entity.game.currentMode.player.takeDamage(
+              bullet.baseDamage *
+                this.entity.game.currentMode.player.damageTakenMultiplier,
+            );
             this.entity.game.applyScreenShake(10);
             this.entity.game.audioManager.play("hurt0");
             for (let i = 0; i < 25; i++) {
@@ -987,7 +994,9 @@ class Player extends PhysicsRect {
     this.currentHealth = this.healthBarManager.fullHealth;
     this.isDead = false;
     this.deathTransitionStarted = false;
-    this.deathTransitionTimer = 0;
+    this.deathTransitionTime = this.game.assets.playerDeath.animCompletionTime;
+    this.deathTransitionTimer = this.deathTransitionTime;
+    this.isExpired = false;
 
     //visuals
     this.img = null;
@@ -1043,17 +1052,23 @@ class Player extends PhysicsRect {
     this.prevX = this.x;
     this.prevY = this.y;
 
-    if(this.currentHealth<=0){
+    if (this.currentHealth <= 0) {
       this.isDead = true;
       this.deathTransitionStarted = true;
     }
-    if(this.deathTransitionStarted){
+    if (this.deathTransitionStarted) {
       this.deathTransitionTimer -= dt;
-      if(this.deathTransitionTimer<=0){
-        // finished death animation
+      if (this.deathTransitionTimer <= 0) {
+        this.isExpired = true;
       }
     }
-    
+    if (this.isDead) {
+      this.takingDamage = false;
+      this.updateAnimationState(dt);
+      this.animationPlayer.update(dt);
+      return;
+    }
+
     // horizontal movement
     let left = this.game.globalInputs.leftPressed ? 1 : 0;
     let right = this.game.globalInputs.rightPressed ? 1 : 0;
@@ -1173,7 +1188,9 @@ class Player extends PhysicsRect {
   }
   updateAnimationState(dt) {
     //change state
-    if (this.takingDamage) {
+    if (this.deathTransitionStarted) {
+      this.newAnimState = PlayerAnimState.DEATH;
+    } else if (this.takingDamage) {
       this.newAnimState = PlayerAnimState.HURT;
     } else if (this.isJumping) {
       this.newAnimState = PlayerAnimState.JUMP;
@@ -1288,6 +1305,9 @@ class Player extends PhysicsRect {
         case PlayerAnimState.WALK_FIRE:
           this.animationPlayer.setAnimation(this.game.assets.playerWalkFire);
           break;
+        case PlayerAnimState.DEATH:
+          this.animationPlayer.setAnimation(this.game.assets.playerDeath);
+          break;
         default:
           break;
       }
@@ -1300,9 +1320,9 @@ class Player extends PhysicsRect {
     this.takingDamageTimer = 0.2;
     this.currentHealth = Math.max(this.currentHealth - damage, 0);
   }
-  heal(heal) {
+  heal(heal, healingTime = 0) {
     this.isHealing = true;
-    this.healingTimer = 0.2;
+    this.healingTimer = 0.2 + healingTime;
     this.currentHealth = Math.min(
       this.currentHealth + heal,
       this.healthBarManager.fullHealth,
@@ -1378,6 +1398,25 @@ class Player extends PhysicsRect {
         this.damageMultiplier = this.damageMultiplier * 0.75;
         break;
     }
+  }
+  reset() {
+    //this.resetCardEffects();
+    this.isDead = false;
+    this.isExpired = false;
+    this.deathTransitionStarted = false;
+    this.deathTransitionTimer = this.deathTransitionTime;
+  }
+  resetCardEffects() {
+    this.damageMultiplier = 1;
+    this.damageTakenMultiplier = 1;
+    this.canLifesteal = false;
+    this.tankiness = 1;
+    this.isHealing = false;
+    this.healingTimer = 0;
+  }
+  revive() {
+    this.reset();
+    this.heal(this.healthBarManager.fullHealth, 0.4);
   }
 }
 class Character extends PhysicsRect {
@@ -1637,7 +1676,10 @@ class Robber extends Character {
     this.detectRect.y = this.y;
 
     //Shooting logic
-    if (this.game.currentMode.player.intersects(this.detectRect)) {
+    if (
+      this.game.currentMode.player.intersects(this.detectRect) &&
+      !this.game.currentMode.player.isDead
+    ) {
       this.playerDetected = true;
       this.isPatrolling = false;
     } else {
@@ -1875,7 +1917,7 @@ class PopupCard extends Rect {
       this.game.globalInputs.mouseX,
       this.game.globalInputs.mouseY,
     );
-    if(this.newState != this.hovered){
+    if (this.newState != this.hovered) {
       this.hovered = this.newState;
       this.game.audioManager.play("hover");
     }
@@ -2648,6 +2690,8 @@ class PlatformerMode {
   async init() {
     this.modeType = GameState.PLATFORMER;
     this.gravity = 600; //px per sec square
+    //game lives
+    this.hopes = 3; //basicly player lives
     //entities
     this.playerW = 16;
     this.playerH = 42;
@@ -2670,6 +2714,7 @@ class PlatformerMode {
 
     //wincondition
     this.wonGame = false;
+    this.gameOver = false;
 
     this.loadWave(this.tileMap.waveData[this.currentWave]);
     //Managers
@@ -2700,6 +2745,17 @@ class PlatformerMode {
     if (this.wonGame) {
       this.updateWinScreen(dt);
       return;
+    } else if (this.gameOver) {
+      this.updateLoseScreen(dt);
+      return;
+    }
+    if (this.player.isExpired) {
+      this.hopes -= 1;
+      if (this.hopes <= 0) {
+        this.gameOver = true;
+        return;
+      }
+      this.player.revive();
     }
     if (this.renderOnHold) {
       this.initialRenderHoldTimer -= dt;
@@ -2734,6 +2790,9 @@ class PlatformerMode {
     if (this.wonGame) {
       this.renderWinScreen(ctx);
       return;
+    } else if (this.gameOver) {
+      this.renderLoseScreen(ctx);
+      return;
     }
     if (this.renderOnHold) {
       return;
@@ -2744,8 +2803,10 @@ class PlatformerMode {
     this.enemyHandeler.render(ctx);
     this.player.render(ctx);
     this.particleManager.render(ctx);
+    this.renderHopes(ctx);
     this.wheel.render(ctx);
   }
+
   loadWave(waveData) {
     for (const entity of Object.values(waveData)) {
       if (entity.type == "robber") {
@@ -2828,6 +2889,93 @@ class PlatformerMode {
     if (this.winRestartButton) {
       this.winRestartButton.render(ctx);
     }
+  }
+  updateLoseScreen(dt) {
+    this.time = (this.time || 0) + dt;
+
+    if (!this.loseRestartButton) {
+      this.loseRestartButton = new GameButton(
+        this.game,
+        this.game.vCanvasW / 2 - 110,
+        this.game.vCanvasH * 0.65,
+        220,
+        60,
+        "TRY AGAIN",
+      );
+    }
+
+    this.loseRestartButton.update();
+
+    if (this.loseRestartButton.isClicked()) {
+      this.game.currentMode = new PlatformerMode(this.game);
+      this.game.currentMode.init();
+    }
+  }
+  renderLoseScreen(ctx) {
+    ctx.fillStyle = "#1f0d0d";
+    ctx.fillRect(0, 0, this.game.vCanvasW, this.game.vCanvasH);
+
+    // ashes
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    for (let i = 0; i < 80; i++) {
+      const x = (i * 173) % this.game.vCanvasW;
+      const y = (i * 97) % this.game.vCanvasH;
+      ctx.fillRect(x, y, 2, 2);
+    }
+
+    const t = this.time || 0;
+    const titleY = this.game.vCanvasH * 0.28 + Math.sin(t * 2) * 6;
+
+    ctx.textAlign = "center";
+
+    // shadow
+    ctx.fillStyle = "#4a1a1a";
+    ctx.font = "bold 80px Arial";
+    ctx.fillText("GAME OVER", this.game.vCanvasW / 2 + 4, titleY + 4);
+
+    // title
+    ctx.fillStyle = "#E34A4A";
+    ctx.fillText("GAME OVER", this.game.vCanvasW / 2, titleY);
+
+    // subtitle
+    ctx.font = "24px Arial";
+    ctx.fillStyle = "#CCCCCC";
+    ctx.fillText(
+      "You've run out of hopes!",
+      this.game.vCanvasW / 2,
+      titleY + 50,
+    );
+
+    // stats
+    ctx.font = "20px Arial";
+    ctx.fillStyle = "#AAAAAA";
+    ctx.fillText(
+      `Wave reached: ${this.currentWave + 1}`,
+      this.game.vCanvasW / 2,
+      titleY + 90,
+    );
+
+    if (this.loseRestartButton) {
+      this.loseRestartButton.render(ctx);
+    }
+  }
+  renderHopes(ctx) {
+    ctx.save();
+
+    ctx.font = "32px Arial";
+    ctx.textAlign = "left";
+
+    for (let i = 0; i < 3; i++) {
+      if (i < this.hopes) {
+        ctx.fillStyle = "#ff4444";
+        ctx.fillText("❤", 20 + i * 40, 45);
+      } else {
+        ctx.fillStyle = "#555555";
+        ctx.fillText("♡", 20 + i * 40, 45);
+      }
+    }
+
+    ctx.restore();
   }
 }
 class Game {
@@ -2983,6 +3131,7 @@ class Game {
       playerFallFire,
       playerRunFire,
       playerHurt,
+      playerDeath,
       bullet,
       robberIdle,
       robberRun,
@@ -3009,6 +3158,7 @@ class Game {
       this.loader.loadImagesFromFolder("assets/male/fallFire/", 5),
       this.loader.loadImagesFromFolder("assets/male/runFire/", 8),
       this.loader.loadImagesFromFolder("assets/male/hurt/", 3),
+      this.loader.loadImagesFromFolder("assets/male/death/", 8),
       this.loader.loadImagesFromFolder("assets/bullet/", 5),
       this.loader.loadImagesFromFolder("assets/robber/idle/", 5),
       this.loader.loadImagesFromFolder("assets/robber/run/", 8),
@@ -3023,7 +3173,10 @@ class Game {
       this.audioManager.load("shot", "assets/sfx/gunshots/shot.wav"),
       this.audioManager.load("heavyShot", "assets/sfx/gunshots/heavyShot.wav"),
       this.audioManager.load("hurt0", "assets/sfx/hurt/0.wav"),
-      this.audioManager.load("lifeStealParticle", "assets/sfx/particleSfx/lifeStealParticle.mp3"),
+      this.audioManager.load(
+        "lifeStealParticle",
+        "assets/sfx/particleSfx/lifeStealParticle.mp3",
+      ),
       this.audioManager.load("hover", "assets/sfx/ui/hover.mp3"),
       this.audioManager.load("selectCard", "assets/sfx/ui/selectCard.mp3"),
       this.audioManager.load("enemyHurt", "assets/sfx/hurt/enemyHurt.mp3"),
@@ -3045,6 +3198,7 @@ class Game {
     this.playerFallFire = playerFallFire;
     this.playerRunFire = playerRunFire;
     this.playerHurt = playerHurt;
+    this.playerDeath = playerDeath;
     this.bullet = bullet;
     this.robberIdle = robberIdle;
     this.robberRun = robberRun;
@@ -3166,6 +3320,13 @@ class Game {
       playerHurt: new Animation(
         this.playerHurt,
         0.3,
+        false,
+        this.playerW,
+        this.playerH,
+      ),
+      playerDeath: new Animation(
+        this.playerDeath,
+        0.8,
         false,
         this.playerW,
         this.playerH,
