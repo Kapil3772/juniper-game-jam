@@ -214,7 +214,6 @@ class OrbParticle extends PhysicsRect {
     this.gravity = this.targetEntity.game.currentMode.gravity;
   }
 }
-
 class LifeStealParticle extends OrbParticle {
   constructor(sourceHealth, x, y, w, h, targetEntity) {
     super(x, y, w, h, targetEntity);
@@ -735,7 +734,6 @@ class Animation {
     this.yOffset = entityHeight - this.imgs[0].height;
   }
 }
-
 class AnimationPlayer {
   constructor() {
     this.animation = null;
@@ -743,8 +741,16 @@ class AnimationPlayer {
     this.frameTime = 0;
     this.frameIndex = 0;
     this.done = false;
+    this.reverseAnim = false;
   }
-  update(dt) {
+  update(dt, reverseAnim = false) {
+    if (!this.animation) {
+      return;
+    }
+    if (reverseAnim) {
+      this.updateForReverse(dt);
+      return;
+    }
     this.animTime += dt;
     this.frameTime += dt;
     if (this.frameTime >= this.animation.frameTime) {
@@ -760,8 +766,28 @@ class AnimationPlayer {
       }
     }
   }
+  updateForReverse(dt) {
+    this.animTime = Math.max(this.animTime - dt, 0);
+    this.frameTime += dt;
+    if (this.frameTime >= this.animation.frameTime) {
+      this.frameTime -= this.animation.frameTime;
+      if (this.animation.looping) {
+        this.frameIndex = this.frameIndex - 1;
+        if (this.frameIndex == -1) {
+          this.frameIndex = this.animation.frames - 1;
+        }
+      } else {
+        this.frameIndex = Math.max(this.frameIndex - 1, 0);
+        this.isDone = true;
+      }
+    }
+  }
   getCurrentFrame() {
-    return this.animation.imgs[this.frameIndex];
+    if (this.animation) {
+      return this.animation.imgs[this.frameIndex];
+    } else {
+      return null;
+    }
   }
   setAnimation(anim) {
     this.reset();
@@ -771,6 +797,10 @@ class AnimationPlayer {
     this.animTime = 0;
     this.frameTime = 0;
     this.frameIndex = 0;
+    this.isDone = false;
+  }
+  reverseAnim() {
+    this.reverseAnim = true;
   }
 }
 
@@ -979,8 +1009,10 @@ class Player extends PhysicsRect {
   }
   init() {
     this.entityType = EntityType.PLAYER;
+    this.initialX = this.x;
+    this.initialY = this.y;
     this.direction = null;
-    this.xVelocity = 47; //px per second
+    this.xVelocity = 50; //px per second
     this.yVelocity = 0; //px per second
     this.maxFallVelocity = 900; //px per sec
     this.jumpVelocity = -this.game.currentMode.gravity / 2.2;
@@ -1019,6 +1051,8 @@ class Player extends PhysicsRect {
     this.isFalling = false;
     this.isRunning = false;
     this.onAir = false;
+    this.airTime = 0;
+    this.resetPosition = false;
     this.isAiming = false;
     this.attackHandeled = false;
     this.isAttacking = false;
@@ -1037,6 +1071,7 @@ class Player extends PhysicsRect {
     this.damageFlashColor = "red";
 
     //card effect dependencies
+    this.heavyShotApplied = false;
     this.damageMultiplier = 1;
     this.damageTakenMultiplier = 1;
     this.canLifesteal = false;
@@ -1060,10 +1095,14 @@ class Player extends PhysicsRect {
       this.deathTransitionTimer -= dt;
       if (this.deathTransitionTimer <= 0) {
         this.isExpired = true;
+        if (this.game.currentMode.canRevive) {
+          this.revive();
+        }
       }
     }
     if (this.isDead) {
       this.takingDamage = false;
+      this.healthBarManager.update(dt);
       this.updateAnimationState(dt);
       this.animationPlayer.update(dt);
       return;
@@ -1078,7 +1117,7 @@ class Player extends PhysicsRect {
     }
     if (this.game.globalInputs.shiftPressed && this.direction != 0) {
       this.isRunning = true;
-      this.runningSpeedFactor = 2.1;
+      this.runningSpeedFactor = 2.6;
     } else {
       this.isRunning = false;
       this.runningSpeedFactor = 1;
@@ -1112,6 +1151,21 @@ class Player extends PhysicsRect {
     this.isJumping = this.yVelocity < 0 ? true : false;
     this.isFalling = this.yVelocity > 0 ? true : false;
 
+    //falling off the edge handel
+    if (this.onAir) {
+      if (this.isFalling) {
+        this.airTime += dt;
+        if (this.airTime > 4) {
+          this.isExpired = true;
+          this.resetPosition = true;
+          if (this.game.currentMode.canRevive) {
+            this.revive();
+          }
+        }
+      } else {
+        this.airTime = 0;
+      }
+    }
     if (
       this.game.globalInputs.jumpPressed &&
       !this.game.globalInputs.jumpHandeled &&
@@ -1143,7 +1197,11 @@ class Player extends PhysicsRect {
         this.attackTimer = this.game.assets.playerFire.animCompletionTime;
         this.attackTimerStarted = true;
         this.gunRecoilFactor = this.isRunning ? 0.5 : 0.8;
+        if(this.heavyShotApplied){
+          this.game.audioManager.play("heavyShot");
+        }else{
         this.game.audioManager.play("shot");
+        }
         this.bulletHandeler.addBullet();
         this.game.applyScreenShake(6);
       }
@@ -1390,6 +1448,7 @@ class Player extends PhysicsRect {
   applyCard(cardId) {
     switch (cardId) {
       case "glass_cannon":
+        this.heavyShotApplied = true;
         this.damageMultiplier = 2;
         this.damageTakenMultiplier = 2;
         break;
@@ -1405,8 +1464,15 @@ class Player extends PhysicsRect {
     this.isExpired = false;
     this.deathTransitionStarted = false;
     this.deathTransitionTimer = this.deathTransitionTime;
+    this.airTime = 0;
+    if (this.resetPosition) {
+      this.x = this.initialX;
+      this.y = this.initialY;
+    }
+    this.resetPosition = false;
   }
   resetCardEffects() {
+    this.heavyShotApplied = false;
     this.damageMultiplier = 1;
     this.damageTakenMultiplier = 1;
     this.canLifesteal = false;
@@ -1415,6 +1481,7 @@ class Player extends PhysicsRect {
     this.healingTimer = 0;
   }
   revive() {
+    console.log("revivecallsed");
     this.reset();
     this.heal(this.healthBarManager.fullHealth, 0.4);
   }
@@ -1504,7 +1571,10 @@ const CharacterAnimState = {
   ROBBER_FIRE: "ROBBER_FIRE",
   ROBBER_DEATH: "ROBBER_DEATH",
 };
-
+const CharacterEmotionAnimState = {
+  RED_EXCLAMATION: "RED_EXCLAMATION",
+  BLACK_EXCLAMATION: "BLACK_EXCLAMATION",
+};
 class HealthBarManager {
   constructor(entity, fullHealth) {
     this.entity = entity;
@@ -1549,6 +1619,7 @@ class Robber extends Character {
     this.checkGridX = 0;
     this.checkGridY = 0;
     this.onAir = false;
+    this.airTime = 0;
     this.entityType = EntityType.ROBBER;
     //health
     let fullHealth = 100;
@@ -1587,6 +1658,19 @@ class Robber extends Character {
 
     this.flashColorSwapTime = 0.05;
     this.flashColorSwapTimer = this.flashColorSwapTime; //secs
+
+    //visuals
+    this.emotionRect = new Rect(0, 0, this.w, this.h / 2);
+    this.emotionAnimPlayer = new AnimationPlayer();
+    this.emotionCurrAnimState = null;
+    this.emotionNextAnimState = null;
+    this.emotionImg = null;
+    this.playerAnalysed = false;
+    this.isAnalyzingPlayer = false;
+    this.playerAnalyzingTime =
+      this.game.assets.redExclamation.animCompletionTime;
+    this.playerAnalyzingTimer = 0; //sec
+    this.reverseAnimation = false;
   }
   update(dt) {
     //health update
@@ -1626,6 +1710,14 @@ class Robber extends Character {
     this.x += this.xVelocity * this.direction * dt;
 
     this.onAir = this.yVelocity != 0 ? true : false;
+    if (this.onAir) {
+      this.airTime += dt;
+      if (this.airTime > 7) {
+        this.isDead = true;
+      }
+    } else {
+      this.airTime = 0;
+    }
     this.checkGridX = Math.floor(this.x / this.game.currentMode.tileMap.tileW);
     this.checkGridX += this.flip ? 1 : -1;
     this.checkGridY = Math.ceil(
@@ -1672,24 +1764,52 @@ class Robber extends Character {
     this.tileCollisionHandeler.resolveVerticalCollision();
     this.updateGridPos();
 
-    this.detectRect.x = this.x - this.detectRect.w / 2;
-    this.detectRect.y = this.y;
-
     //Shooting logic
     if (
       this.game.currentMode.player.intersects(this.detectRect) &&
       !this.game.currentMode.player.isDead
     ) {
       this.playerDetected = true;
+      if (!this.isAnalyzingPlayer) {
+        this.detectRect.h *= 2;
+      }
+      this.isAnalyzingPlayer = true;
       this.isPatrolling = false;
     } else {
-      if (this.playerDetected) {
-        this.patrollResetTimer = 1;
-      }
       this.playerDetected = false;
-      this.isPatrolling = true;
+      this.playerAnalysed = false;
     }
 
+    if (this.isAnalyzingPlayer) {
+      if (this.playerDetected) {
+        this.playerAnalyzingTimer = Math.min(
+          this.playerAnalyzingTimer + dt,
+          this.playerAnalyzingTime,
+        );
+        this.reverseAnimation = false;
+        if (this.playerAnalyzingTimer == this.playerAnalyzingTime) {
+          this.playerAnalysed = true;
+        }
+      } else {
+        this.playerAnalyzingTimer = Math.max(this.playerAnalyzingTimer - dt, 0);
+        this.reverseAnimation = true;
+        if (this.playerAnalyzingTimer <= 0) {
+          this.playerAnalysed = false;
+          this.isAnalyzingPlayer = false;
+          this.detectRect.h /= 2;
+          this.patrollResetTimer = 1;
+          this.idleTimer = 0;
+          this.reverseAnimation = false;
+          this.isPatrolling = true;
+        }
+      }
+    }
+    this.detectRect.x = this.centerX() - this.detectRect.w / 2;
+    this.detectRect.y = this.centerY() - this.detectRect.h / 2;
+
+    this.emotionRect.x = this.centerX() - this.emotionRect.w / 2;
+    this.emotionRect.y = this.y - this.emotionRect.h;
+    // console.log("Analysing player : " + this.isAnalyzingPlayer + "," + this.playerAnalyzingTimer + " Player Analysed : " + this.playerAnalysed);
     if (this.fireHandeled) {
       this.firingCooldownTimer -= dt;
       this.firingAnimTimer -= dt;
@@ -1710,12 +1830,14 @@ class Robber extends Character {
         this.centerX() - this.game.currentMode.player.centerX() <= 0
           ? true
           : false;
-      if (!this.fireHandeled && !this.runningToReload) {
+      if (!this.fireHandeled && !this.runningToReload && this.playerAnalysed) {
         this.fireHandeled = true;
         this.isFiring = true;
         this.firingCooldownTimer =
           this.game.assets.robberFire.animCompletionTime * 3;
         this.firingAnimTimer = this.game.assets.robberFire.animCompletionTime;
+        this.game.audioManager.play("shot");
+        this.game.applyScreenShake(6);
         this.bulletHandeler.addBullet();
         this.bulletsInMag -= 1;
         if (this.bulletsInMag <= 0) {
@@ -1753,7 +1875,9 @@ class Robber extends Character {
       }
     }
     this.updateAnimationState();
+    this.updateEmotionAnimationState();
     this.animationPlayer.update(dt);
+    this.emotionAnimPlayer.update(dt, this.reverseAnimation);
   }
   updateAnimationState() {
     if (this.deathTransitionStarted) {
@@ -1786,6 +1910,26 @@ class Robber extends Character {
       }
     }
   }
+  updateEmotionAnimationState() {
+    if (this.isAnalyzingPlayer) {
+      this.emotionNextAnimState = CharacterEmotionAnimState.RED_EXCLAMATION;
+    } else {
+      this.emotionNextAnimState = null;
+    }
+
+    if (this.emotionNextAnimState != this.emotionCurrAnimState) {
+      this.emotionCurrAnimState = this.emotionNextAnimState;
+      if (
+        this.emotionCurrAnimState == CharacterEmotionAnimState.RED_EXCLAMATION
+      ) {
+        this.emotionAnimPlayer.setAnimation(this.game.assets.redExclamation);
+      } else {
+        this.emotionAnimPlayer.setAnimation(null);
+      }
+    }
+
+    this.emotionImg = this.emotionAnimPlayer.getCurrentFrame();
+  }
   updateGridPos() {
     this.gridX = Math.floor(
       this.centerX() / this.game.currentMode.tileMap.tileW,
@@ -1817,13 +1961,40 @@ class Robber extends Character {
     //   this.h,
     // );
     //detect rect
-    // ctx.strokeStyle = "red";
-    // ctx.strokeRect(
-    //   this.detectRect.x + this.game.camera.camOffsetX,
-    //   this.detectRect.y + this.game.camera.camOffsetY,
-    //   this.detectRect.w,
-    //   this.detectRect.h,
-    // );
+    const cx = this.game.currentMode.camera.camOffsetX;
+    const cy = this.game.currentMode.camera.camOffsetY;
+    ctx.strokeStyle = "red";
+    ctx.strokeRect(
+      this.detectRect.x + cx,
+      this.detectRect.y + cy,
+      this.detectRect.w,
+      this.detectRect.h,
+    );
+    //emotion rect
+    if (this.emotionImg != null && !this.isDead) {
+      ctx.drawImage(
+        this.emotionImg,
+        this.emotionRect.x + cx,
+        this.emotionRect.y + cy,
+      );
+    } else {
+      if (this.playerAnalysed) {
+        ctx.strokeStyle = "red";
+      } else {
+        if (!this.isAnalyzingPlayer) {
+          ctx.strokeStyle = "green";
+        } else {
+          ctx.strokeStyle = "blue";
+        }
+      }
+      ctx.strokeRect(
+        this.emotionRect.x + this.game.currentMode.camera.camOffsetX,
+        this.emotionRect.y + this.game.currentMode.camera.camOffsetY,
+        this.emotionRect.w,
+        this.emotionRect.h,
+      );
+    }
+
     this.bulletHandeler.render(ctx);
     if (!this.isDead) {
       this.healthBarManager.render(ctx);
@@ -2716,6 +2887,9 @@ class PlatformerMode {
     this.wonGame = false;
     this.gameOver = false;
 
+    //looseCondition
+    this.canRevive = false;
+
     this.loadWave(this.tileMap.waveData[this.currentWave]);
     //Managers
     this.particleManager = new ParticleManager(this.game);
@@ -2730,12 +2904,6 @@ class PlatformerMode {
 
     //audio
     this.audioManager = this.game.audioManager;
-    const bg = this.audioManager.sounds.get("ambience");
-    const bg2 = this.audioManager.sounds.get("forestBgm");
-    bg.loop = true;
-    bg2.loop = true;
-    this.audioManager.play("ambience");
-    this.audioManager.play("forestBgm");
     this.isInitialized = true;
   }
   update(dt) {
@@ -2749,14 +2917,25 @@ class PlatformerMode {
       this.updateLoseScreen(dt);
       return;
     }
+    this.canRevive = false;
     if (this.player.isExpired) {
       this.hopes -= 1;
+      this.canRevive = true;
       if (this.hopes <= 0) {
         this.gameOver = true;
+        this.canRevive = false;
         return;
       }
-      this.player.revive();
     }
+    console.log(
+      "MODE",
+      "expired:",
+      this.player.isExpired,
+      "hopes:",
+      this.hopes,
+      "canRevive:",
+      this.canRevive,
+    );
     if (this.renderOnHold) {
       this.initialRenderHoldTimer -= dt;
       if (this.initialRenderHoldTimer <= 0) {
@@ -2769,6 +2948,7 @@ class PlatformerMode {
         if (!this.wheel.isVisible) {
           this.wheel.isVisible = true;
           this.currentWave += 1;
+          console.log(this.currentWave);
           if (this.currentWave > this.tileMap.waveData.length - 1) {
             this.wonGame = true;
           }
@@ -3120,6 +3300,7 @@ class Game {
       playerJump,
       playerFall,
       playerRun,
+      playerCrouch,
       playerAimIdle,
       playerFire,
       playerWalkAim,
@@ -3141,12 +3322,15 @@ class Game {
       stone,
       decor,
       largeDecor,
+      blackExclamation,
+      redExclamation,
     ] = await Promise.all([
       this.loader.loadImagesFromFolder("assets/male/idle/", 5),
       this.loader.loadImagesFromFolder("assets/male/walk/", 8),
       this.loader.loadImagesFromFolder("assets/male/jump/", 5),
       this.loader.loadImagesFromFolder("assets/male/fall/", 5),
       this.loader.loadImagesFromFolder("assets/male/run/", 8),
+      this.loader.loadImagesFromFolder("assets/male/crouch/", 5),
       this.loader.loadImagesFromFolder("assets/male/aimIdle/", 5),
       this.loader.loadImagesFromFolder("assets/male/fire/", 5),
       this.loader.loadImagesFromFolder("assets/male/walkAim/", 8),
@@ -3168,6 +3352,15 @@ class Game {
       this.loader.loadImagesFromFolder("assets/tiles/stone/", 9),
       this.loader.loadImagesFromFolder("assets/tiles/decor/", 4),
       this.loader.loadImagesFromFolder("assets/tiles/largeDecor/", 3),
+      this.loader.loadImagesFromFolder(
+        "assets/emotionIcons/blackExclamation/",
+        3,
+      ),
+      this.loader.loadImagesFromFolder(
+        "assets/emotionIcons/redExclamation/",
+        3,
+      ),
+      //audio
       this.audioManager.load("ambience", "assets/sfx/bgm/ambience.wav"),
       this.audioManager.load("forestBgm", "assets/sfx/bgm/forestBgm.wav"),
       this.audioManager.load("shot", "assets/sfx/gunshots/shot.wav"),
@@ -3181,12 +3374,19 @@ class Game {
       this.audioManager.load("selectCard", "assets/sfx/ui/selectCard.mp3"),
       this.audioManager.load("enemyHurt", "assets/sfx/hurt/enemyHurt.mp3"),
     ]);
+    const bg = this.audioManager.sounds.get("ambience");
+    const bg2 = this.audioManager.sounds.get("forestBgm");
+    bg.loop = true;
+    bg2.loop = true;
+    this.audioManager.play("ambience");
+    this.audioManager.play("forestBgm");
     //images
     this.playerIdle = playerIdle;
     this.playerWalk = playerWalk;
     this.playerJump = playerJump;
     this.playerFall = playerFall;
     this.playerRun = playerRun;
+    this.playerCrouch = playerCrouch;
     this.playerAimIdle = playerAimIdle;
     this.playerFire = playerFire;
     this.playerWalkAim = playerWalkAim;
@@ -3204,6 +3404,8 @@ class Game {
     this.robberRun = robberRun;
     this.robberFire = robberFire;
     this.robberDeath = robberDeath;
+    this.blackExclamation = blackExclamation;
+    this.redExclamation = redExclamation;
 
     if (this.currentMode.modeType == GameState.LOADING_SCREEN) {
       this.currentMode.incrementProgress(0.6, "initializing player");
@@ -3242,6 +3444,13 @@ class Game {
       ),
       playerRun: new Animation(
         this.playerRun,
+        0.65,
+        true,
+        this.playerW,
+        this.playerH,
+      ),
+      playerCrouch: new Animation(
+        this.playerCrouch,
         0.65,
         true,
         this.playerW,
@@ -3366,6 +3575,20 @@ class Game {
         this.playerW,
         this.playerH,
       ),
+      blackExclamation: new Animation(
+        this.blackExclamation,
+        1,
+        false,
+        this.playerW,
+        this.playerH / 2,
+      ),
+      redExclamation: new Animation(
+        this.redExclamation,
+        1,
+        false,
+        this.playerW,
+        this.playerH / 2,
+      ),
     };
     this.sfx = {};
     this.cardData = {
@@ -3422,12 +3645,7 @@ class Game {
     //     this.camera.entity = this.robber;
     //   }
     // }
-    if (this.screenShakeStrength > 0) {
-      this.updateScreenShake(dt);
-    } else {
-      this.shakeX = 0;
-      this.shakeY = 0;
-    }
+    this.updateScreenShake(dt);
   }
   updateScreenShake(dt) {
     this.screenShakeStrength = Math.max(

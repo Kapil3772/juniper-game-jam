@@ -214,8 +214,7 @@
     [
       { "type": "robber", "pos": [70, 40] },
       { "type": "robber", "pos": [180, 40] },
-      { "type": "robber", "pos": [290, 40] },
-      { "type": "robber", "pos": [400, 40] }
+      { "type": "robber", "pos": [290, 40] }
     ]
   ]
 }
