@@ -1,0 +1,19 @@
+1. Enemy Indicators. Triangle indicators whivh glow bright red when enemy are near.
+
+2 Tutorial Screen
+
+3 Win screen , End Screen audios
+
+4 Intro/ Outro video or dialog
+
+5 More card details
+
+6 More Waves
+
+7 New map design ( with background, parallex)
+
+8 NPC environment system like (Birds, small animals)
+
+9 Particle system like leaves in wind, ashes in Menu mode and both win and loose screens too
+
+10 Better visual cover image

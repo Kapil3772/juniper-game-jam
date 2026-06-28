@@ -49,6 +49,7 @@ class PhysicsRect extends Rect {
 class AudioManager {
   constructor() {
     this.sounds = new Map();
+    this.currentBgms = new Set();
   }
 
   load(name, path, volume = 1) {
@@ -85,14 +86,53 @@ class AudioManager {
     const clone = sound.cloneNode();
     clone.volume = sound.volume;
     clone.play();
+
+    clone.onended = () => clone.remove();
   }
 
-  stop(name) {
-    const sound = this.sounds.get(name);
-    if (!sound) return;
+  playBgm(name, loop = true) {
+    const music = this.sounds.get(name);
+    if (!music) return;
 
-    sound.pause();
-    sound.currentTime = 0;
+    // Already playing?
+    if (this.currentBgms.has(music) && !music.paused) return;
+
+    music.loop = loop;
+    music.currentTime = 0;
+    music.play();
+
+    this.currentBgms.add(music);
+  }
+
+  stopBgm(name) {
+    const music = this.sounds.get(name);
+    if (!music) return;
+
+    music.pause();
+    music.currentTime = 0;
+
+    this.currentBgms.delete(music);
+  }
+
+  stopAllBgm() {
+    for (const music of this.currentBgms) {
+      music.pause();
+      music.currentTime = 0;
+    }
+
+    this.currentBgms.clear();
+  }
+
+  pauseAllBgm() {
+    for (const music of this.currentBgms) {
+      music.pause();
+    }
+  }
+
+  resumeAllBgm() {
+    for (const music of this.currentBgms) {
+      music.play();
+    }
   }
 
   setVolume(name, volume) {
@@ -1079,6 +1119,8 @@ class Player extends PhysicsRect {
     this.isHealing = false;
     this.healingTimer = 0;
     this.healFlashColor = "green";
+    this.extraRevive = false;
+    this.applyHalfHealthDebuff = false;
   }
   jump() {
     this.yVelocity = this.jumpVelocity;
@@ -1197,10 +1239,10 @@ class Player extends PhysicsRect {
         this.attackTimer = this.game.assets.playerFire.animCompletionTime;
         this.attackTimerStarted = true;
         this.gunRecoilFactor = this.isRunning ? 0.5 : 0.8;
-        if(this.heavyShotApplied){
+        if (this.heavyShotApplied) {
           this.game.audioManager.play("heavyShot");
-        }else{
-        this.game.audioManager.play("shot");
+        } else {
+          this.game.audioManager.play("shot");
         }
         this.bulletHandeler.addBullet();
         this.game.applyScreenShake(6);
@@ -1456,6 +1498,9 @@ class Player extends PhysicsRect {
         this.canLifesteal = true;
         this.damageMultiplier = this.damageMultiplier * 0.75;
         break;
+      case "lucky_escape":
+        this.extraRevive = true;
+        this.applyHalfHealthDebuff = true;
     }
   }
   reset() {
@@ -1479,11 +1524,17 @@ class Player extends PhysicsRect {
     this.tankiness = 1;
     this.isHealing = false;
     this.healingTimer = 0;
+    this.extraRevive = false;
+    this.applyHalfHealthDebuff = false;
   }
   revive() {
-    console.log("revivecallsed");
     this.reset();
-    this.heal(this.healthBarManager.fullHealth, 0.4);
+    if(this.applyHalfHealthDebuff){
+      this.heal(this.healthBarManager.fullHealth/2, 0.4);
+      this.applyHalfHealthDebuff = false;
+    }else{
+      this.heal(this.healthBarManager.fullHealth, 0.4);
+    }
   }
 }
 class Character extends PhysicsRect {
@@ -1660,7 +1711,7 @@ class Robber extends Character {
     this.flashColorSwapTimer = this.flashColorSwapTime; //secs
 
     //visuals
-    this.emotionRect = new Rect(0, 0, this.w, this.h / 2);
+    this.emotionRect = new Rect(0, 0, this.w, this.h / 4);
     this.emotionAnimPlayer = new AnimationPlayer();
     this.emotionCurrAnimState = null;
     this.emotionNextAnimState = null;
@@ -1963,36 +2014,36 @@ class Robber extends Character {
     //detect rect
     const cx = this.game.currentMode.camera.camOffsetX;
     const cy = this.game.currentMode.camera.camOffsetY;
-    ctx.strokeStyle = "red";
-    ctx.strokeRect(
-      this.detectRect.x + cx,
-      this.detectRect.y + cy,
-      this.detectRect.w,
-      this.detectRect.h,
-    );
+    // ctx.strokeStyle = "red";
+    // ctx.strokeRect(
+    //   this.detectRect.x + cx,
+    //   this.detectRect.y + cy,
+    //   this.detectRect.w,
+    //   this.detectRect.h,
+    // );
     //emotion rect
     if (this.emotionImg != null && !this.isDead) {
       ctx.drawImage(
         this.emotionImg,
-        this.emotionRect.x + cx,
-        this.emotionRect.y + cy,
+        this.emotionRect.x + cx + this.emotionAnimPlayer.animation.xOffset,
+        this.emotionRect.y + cy + this.emotionAnimPlayer.animation.yOffset,
       );
     } else {
-      if (this.playerAnalysed) {
-        ctx.strokeStyle = "red";
-      } else {
-        if (!this.isAnalyzingPlayer) {
-          ctx.strokeStyle = "green";
-        } else {
-          ctx.strokeStyle = "blue";
-        }
-      }
-      ctx.strokeRect(
-        this.emotionRect.x + this.game.currentMode.camera.camOffsetX,
-        this.emotionRect.y + this.game.currentMode.camera.camOffsetY,
-        this.emotionRect.w,
-        this.emotionRect.h,
-      );
+      //   if (this.playerAnalysed) {
+      //     ctx.fillStyle = "red";
+      //   } else {
+      //     if (!this.isAnalyzingPlayer) {
+      //       ctx.fillStyle = "green";
+      //     } else {
+      //       ctx.fillStyle = "blue";
+      //     }
+      //   }
+      //   ctx.fillRect(
+      //     this.emotionRect.x + this.game.currentMode.camera.camOffsetX,
+      //     this.emotionRect.y + this.game.currentMode.camera.camOffsetY,
+      //     this.emotionRect.w,
+      //     this.emotionRect.h,
+      //   );
     }
 
     this.bulletHandeler.render(ctx);
@@ -2904,6 +2955,10 @@ class PlatformerMode {
 
     //audio
     this.audioManager = this.game.audioManager;
+    const bg2 = this.audioManager.sounds.get("battle");
+    bg2.loop = true;
+    this.audioManager.stopBgm("forestBgm");
+    this.audioManager.playBgm("battle");
     this.isInitialized = true;
   }
   update(dt) {
@@ -2919,7 +2974,11 @@ class PlatformerMode {
     }
     this.canRevive = false;
     if (this.player.isExpired) {
-      this.hopes -= 1;
+      if (this.player.extraRevive) {
+        this.player.extraRevive = false;
+      } else {
+        this.hopes -= 1;
+      }
       this.canRevive = true;
       if (this.hopes <= 0) {
         this.gameOver = true;
@@ -3026,6 +3085,7 @@ class PlatformerMode {
     }
     this.winRestartButton.update();
     if (this.winRestartButton.isClicked()) {
+      this.game.currentMode.destroy();
       this.game.currentMode = new PlatformerMode(this.game);
       this.game.currentMode.init();
     }
@@ -3087,6 +3147,7 @@ class PlatformerMode {
     this.loseRestartButton.update();
 
     if (this.loseRestartButton.isClicked()) {
+      this.game.currentMode.destroy();
       this.game.currentMode = new PlatformerMode(this.game);
       this.game.currentMode.init();
     }
@@ -3156,6 +3217,9 @@ class PlatformerMode {
     }
 
     ctx.restore();
+  }
+  destroy() {
+    this.audioManager.stopBgm("battle");
   }
 }
 class Game {
@@ -3363,6 +3427,7 @@ class Game {
       //audio
       this.audioManager.load("ambience", "assets/sfx/bgm/ambience.wav"),
       this.audioManager.load("forestBgm", "assets/sfx/bgm/forestBgm.wav"),
+      this.audioManager.load("battle", "assets/sfx/bgm/battle.ogg"),
       this.audioManager.load("shot", "assets/sfx/gunshots/shot.wav"),
       this.audioManager.load("heavyShot", "assets/sfx/gunshots/heavyShot.wav"),
       this.audioManager.load("hurt0", "assets/sfx/hurt/0.wav"),
@@ -3375,11 +3440,11 @@ class Game {
       this.audioManager.load("enemyHurt", "assets/sfx/hurt/enemyHurt.mp3"),
     ]);
     const bg = this.audioManager.sounds.get("ambience");
-    const bg2 = this.audioManager.sounds.get("forestBgm");
+    const bg3 = this.audioManager.sounds.get("forestBgm");
     bg.loop = true;
-    bg2.loop = true;
-    this.audioManager.play("ambience");
-    this.audioManager.play("forestBgm");
+    bg3.loop = true;
+    this.audioManager.playBgm("ambience");
+    this.audioManager.playBgm("forestBgm");
     //images
     this.playerIdle = playerIdle;
     this.playerWalk = playerWalk;
@@ -3586,8 +3651,8 @@ class Game {
         this.redExclamation,
         1,
         false,
-        this.playerW,
-        this.playerH / 2,
+        this.playerW + 8,
+        this.playerH / 2 - 8,
       ),
     };
     this.sfx = {};
@@ -3595,7 +3660,7 @@ class Game {
       data1: {
         id: "vampire",
         buffLabel: "Vampire",
-        buffDetail: "Heal 1 HP for every kill",
+        buffDetail: "Heal some HP for every kill",
         debuffLabel: "Weak Attacks",
         debuffDetail: "Deal 25% less damage",
       },
@@ -3613,7 +3678,7 @@ class Game {
         buffLabel: "Lucky Escape",
         buffDetail: "Revive once after death",
         debuffLabel: "Bad Start",
-        debuffDetail: "Begin with 50% HP",
+        debuffDetail: "Begin with 50% HP on Revive and next Wave",
       },
     };
     this.tileVariantRegistry = {
