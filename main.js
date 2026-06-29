@@ -1125,13 +1125,23 @@ class Player extends PhysicsRect {
   jump() {
     this.yVelocity = this.jumpVelocity;
   }
+  applyGravityAndHandelVerticalCollision(dt){
+    this.yVelocity += this.game.currentMode.gravity * dt;
+    this.y = this.y + this.yVelocity * dt;
+    this.yVelocity = Math.min(this.yVelocity, this.maxFallVelocity);
+    this.tileCollisionHandeler.updatePhysicsTilesAround();
+    this.tileCollisionHandeler.resolveVerticalCollision();
+    this.onAir = this.yVelocity != 0 ? true : false;
+  }
   update(dt) {
     this.prevX = this.x;
     this.prevY = this.y;
 
     if (this.currentHealth <= 0) {
       this.isDead = true;
-      this.deathTransitionStarted = true;
+      if(!this.onAir){
+        this.deathTransitionStarted = true;
+      }
     }
     if (this.deathTransitionStarted) {
       this.deathTransitionTimer -= dt;
@@ -1144,6 +1154,7 @@ class Player extends PhysicsRect {
     }
     if (this.isDead) {
       this.takingDamage = false;
+      this.applyGravityAndHandelVerticalCollision(dt);
       this.healthBarManager.update(dt);
       this.updateAnimationState(dt);
       this.animationPlayer.update(dt);
@@ -1529,10 +1540,10 @@ class Player extends PhysicsRect {
   }
   revive() {
     this.reset();
-    if(this.applyHalfHealthDebuff){
-      this.heal(this.healthBarManager.fullHealth/2, 0.4);
+    if (this.applyHalfHealthDebuff) {
+      this.heal(this.healthBarManager.fullHealth / 2, 0.4);
       this.applyHalfHealthDebuff = false;
-    }else{
+    } else {
       this.heal(this.healthBarManager.fullHealth, 0.4);
     }
   }
@@ -2005,12 +2016,8 @@ class Robber extends Character {
     //   32,
     // );
     //debug
-    // ctx.strokeRect(
-    //   this.x + this.game.currentMode.camera.camOffsetX,
-    //   this.y + this.game.currentMode.camera.camOffsetY,
-    //   this.w,
-    //   this.h,
-    // );
+    // ctx.strokeStyle = "white";
+    // ctx.strokeRect(this.x, this.y, this.w, this.h);
     //detect rect
     const cx = this.game.currentMode.camera.camOffsetX;
     const cy = this.game.currentMode.camera.camOffsetY;
@@ -2856,9 +2863,93 @@ class LoadingScreen {
     }
   }
 }
+
+class EnemyIndicatorManager {
+  constructor(mode) {
+    this.mode = mode;
+    this.camera = mode.camera;
+  }
+
+  render(ctx) {
+    const { vCanvasW, vCanvasH, gameRenderingRect } = this.mode.game;
+    const { camOffsetX, camOffsetY } = this.camera;
+
+    const centerX = this.camera.x;
+    const centerY = this.camera.y;
+
+    const left   = -camOffsetX;
+    const top    = -camOffsetY;
+    const right  = left + vCanvasW;
+    const bottom = top  + vCanvasH;
+
+    const minDist = 200;
+    const maxDist = 1200;
+
+    for (const enemy of this.mode.enemies) {
+      if (enemy.intersects(gameRenderingRect)) continue;
+
+      const ex = enemy.centerX();
+      const ey = enemy.centerY();
+      const worldDist = Math.hypot(ex - centerX, ey - centerY);
+      if (worldDist === 0) continue;
+
+      const dx = (ex - centerX) / worldDist;
+      const dy = (ey - centerY) / worldDist;
+
+      let bestT = Infinity;
+
+      if (dx !== 0) {
+        const tLeft  = (left  - centerX) / dx;
+        const tRight = (right - centerX) / dx;
+        if (tLeft  > 0) { const y = centerY + dy * tLeft;  if (y >= top && y <= bottom) bestT = Math.min(bestT, tLeft);  }
+        if (tRight > 0) { const y = centerY + dy * tRight; if (y >= top && y <= bottom) bestT = Math.min(bestT, tRight); }
+      }
+
+      if (dy !== 0) {
+        const tTop    = (top    - centerY) / dy;
+        const tBottom = (bottom - centerY) / dy;
+        if (tTop    > 0) { const x = centerX + dx * tTop;    if (x >= left && x <= right) bestT = Math.min(bestT, tTop);    }
+        if (tBottom > 0) { const x = centerX + dx * tBottom; if (x >= left && x <= right) bestT = Math.min(bestT, tBottom); }
+      }
+
+      if (bestT === Infinity) continue;
+
+      const t = Math.min(Math.max(worldDist - minDist, 0) / (maxDist - minDist), 1);
+
+      const r = Math.round(255 - t * 175);
+      const g = Math.round(50  - t * 50);
+      const b = Math.round(50  - t * 50);
+
+      // full size at t=0, half size at t=1
+      const scale = 1 - t * 0.5;
+      const tip  = 12 * scale;
+      const back =  8 * scale;
+      const wing =  6 * scale;
+
+      const worldHitX = centerX + dx * bestT;
+      const worldHitY = centerY + dy * bestT;
+      const renderX = worldHitX + camOffsetX - dx * tip;
+      const renderY = worldHitY + camOffsetY - dy * tip;
+      const angle = Math.atan2(dy, dx);
+
+      ctx.save();
+      ctx.translate(renderX, renderY);
+      ctx.rotate(angle);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.beginPath();
+      ctx.moveTo(tip,   0);
+      ctx.lineTo(-back, -wing);
+      ctx.lineTo(-back,  wing);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
 class EnemyHandeler {
   constructor(mode) {
     this.mode = mode;
+    this.enemyIndicatorManager = new EnemyIndicatorManager(this.mode);
   }
   update(dt) {
     for (const enemy of this.mode.enemies) {
@@ -2882,6 +2973,7 @@ class EnemyHandeler {
     for (const deadBody of this.mode.deadBodies) {
       deadBody.render(ctx);
     }
+    this.enemyIndicatorManager.render(ctx);
   }
   filterDeadEnemies() {
     for (let i = this.mode.enemies.length - 1; i >= 0; i--) {
@@ -2986,15 +3078,6 @@ class PlatformerMode {
         return;
       }
     }
-    console.log(
-      "MODE",
-      "expired:",
-      this.player.isExpired,
-      "hopes:",
-      this.hopes,
-      "canRevive:",
-      this.canRevive,
-    );
     if (this.renderOnHold) {
       this.initialRenderHoldTimer -= dt;
       if (this.initialRenderHoldTimer <= 0) {

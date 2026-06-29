@@ -1,4 +1,4 @@
-1. Enemy Indicators. Triangle indicators whivh glow bright red when enemy are near.
+1. Enemy Indicators. Triangle indicators which glow bright red and big when enemy are near and small and dim when far.
 
 2 Tutorial Screen
 
