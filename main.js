@@ -1125,7 +1125,7 @@ class Player extends PhysicsRect {
   jump() {
     this.yVelocity = this.jumpVelocity;
   }
-  applyGravityAndHandelVerticalCollision(dt){
+  applyGravityAndHandelVerticalCollision(dt) {
     this.yVelocity += this.game.currentMode.gravity * dt;
     this.y = this.y + this.yVelocity * dt;
     this.yVelocity = Math.min(this.yVelocity, this.maxFallVelocity);
@@ -1139,7 +1139,7 @@ class Player extends PhysicsRect {
 
     if (this.currentHealth <= 0) {
       this.isDead = true;
-      if(!this.onAir){
+      if (!this.onAir) {
         this.deathTransitionStarted = true;
       }
     }
@@ -2877,10 +2877,10 @@ class EnemyIndicatorManager {
     const centerX = this.camera.x;
     const centerY = this.camera.y;
 
-    const left   = -camOffsetX;
-    const top    = -camOffsetY;
-    const right  = left + vCanvasW;
-    const bottom = top  + vCanvasH;
+    const left = -camOffsetX;
+    const top = -camOffsetY;
+    const right = left + vCanvasW;
+    const bottom = top + vCanvasH;
 
     const minDist = 200;
     const maxDist = 1200;
@@ -2899,32 +2899,47 @@ class EnemyIndicatorManager {
       let bestT = Infinity;
 
       if (dx !== 0) {
-        const tLeft  = (left  - centerX) / dx;
+        const tLeft = (left - centerX) / dx;
         const tRight = (right - centerX) / dx;
-        if (tLeft  > 0) { const y = centerY + dy * tLeft;  if (y >= top && y <= bottom) bestT = Math.min(bestT, tLeft);  }
-        if (tRight > 0) { const y = centerY + dy * tRight; if (y >= top && y <= bottom) bestT = Math.min(bestT, tRight); }
+        if (tLeft > 0) {
+          const y = centerY + dy * tLeft;
+          if (y >= top && y <= bottom) bestT = Math.min(bestT, tLeft);
+        }
+        if (tRight > 0) {
+          const y = centerY + dy * tRight;
+          if (y >= top && y <= bottom) bestT = Math.min(bestT, tRight);
+        }
       }
 
       if (dy !== 0) {
-        const tTop    = (top    - centerY) / dy;
+        const tTop = (top - centerY) / dy;
         const tBottom = (bottom - centerY) / dy;
-        if (tTop    > 0) { const x = centerX + dx * tTop;    if (x >= left && x <= right) bestT = Math.min(bestT, tTop);    }
-        if (tBottom > 0) { const x = centerX + dx * tBottom; if (x >= left && x <= right) bestT = Math.min(bestT, tBottom); }
+        if (tTop > 0) {
+          const x = centerX + dx * tTop;
+          if (x >= left && x <= right) bestT = Math.min(bestT, tTop);
+        }
+        if (tBottom > 0) {
+          const x = centerX + dx * tBottom;
+          if (x >= left && x <= right) bestT = Math.min(bestT, tBottom);
+        }
       }
 
       if (bestT === Infinity) continue;
 
-      const t = Math.min(Math.max(worldDist - minDist, 0) / (maxDist - minDist), 1);
+      const t = Math.min(
+        Math.max(worldDist - minDist, 0) / (maxDist - minDist),
+        1,
+      );
 
       const r = Math.round(255 - t * 175);
-      const g = Math.round(50  - t * 50);
-      const b = Math.round(50  - t * 50);
+      const g = Math.round(50 - t * 50);
+      const b = Math.round(50 - t * 50);
 
       // full size at t=0, half size at t=1
       const scale = 1 - t * 0.5;
-      const tip  = 12 * scale;
-      const back =  8 * scale;
-      const wing =  6 * scale;
+      const tip = 12 * scale;
+      const back = 8 * scale;
+      const wing = 6 * scale;
 
       const worldHitX = centerX + dx * bestT;
       const worldHitY = centerY + dy * bestT;
@@ -2937,9 +2952,9 @@ class EnemyIndicatorManager {
       ctx.rotate(angle);
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.beginPath();
-      ctx.moveTo(tip,   0);
+      ctx.moveTo(tip, 0);
       ctx.lineTo(-back, -wing);
-      ctx.lineTo(-back,  wing);
+      ctx.lineTo(-back, wing);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
