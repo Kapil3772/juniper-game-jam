@@ -246,6 +246,73 @@ class ProgressBar extends Rect {
   }
 }
 
+// Non collidable particle
+class AshParticle extends Rect {
+  constructor(x, y, w, h, ascendSpeed, camera) {
+    super(x, y, w, h);
+    
+    this.camera = camera;
+    
+    // Upward velocity
+    this.vy = -(ascendSpeed * (0.5 + Math.random() * 0.5));
+    
+    // Random horizontal movement
+    this.vx = (Math.random() - 0.5) * 20;
+    
+    // Wind
+    this.wind = (Math.random() - 0.5) * 40;
+    this.windTimer = 0;
+    
+    this.alpha = 1;
+    this.rotation = Math.random() * Math.PI * 2;
+    this.rotationSpeed = (Math.random() - 0.5) * 4;
+    
+    this.isDead = false;
+  }
+  
+  update(dt) {
+    // Every 0.2–0.6s choose a new wind direction
+    this.windTimer -= dt;
+    if (this.windTimer <= 0) {
+      this.wind = (Math.random() - 0.5) * 60;
+      this.windTimer = 0.2 + Math.random() * 0.4;
+    }
+    
+    // Wind smoothly affects velocity
+    this.vx += (this.wind - this.vx) * 2 * dt;
+    
+    // Slightly slow upward movement
+    this.vy *= Math.pow(0.998, dt * 60);
+    
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    
+    this.rotation += this.rotationSpeed * dt;
+    
+    // Fade 
+    this.alpha -= 0.1 * dt;
+    
+    if (this.alpha <= 0) {
+      this.isDead = true;
+    }
+  }
+  
+  render(ctx) {
+    const drawX = this.x + this.camera.camOffsetX;
+    const drawY = this.y + this.camera.camOffsetY;
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.translate(drawX + this.w / 2, drawY + this.h / 2);
+    ctx.rotate(this.rotation);
+    
+    ctx.fillStyle = "#ff9c5c";
+    ctx.fillRect(-this.w / 2, -this.h / 2, this.w, this.h);
+    
+    ctx.restore();
+  }
+}
+
+// Collidable particle
 class OrbParticle extends PhysicsRect {
   constructor(x, y, w, h, targetEntity) {
     super(x, y, w, h);
@@ -434,11 +501,18 @@ class BloodParticle {
     );
   }
 }
+
+// Manaager
 class ParticleManager {
   constructor(game) {
     this.game = game;
     this.bloodParticles = [];
     this.lifeStealParticles = [];
+    this.sparkParticles = [];
+
+    //timers for spawners
+    this.ashSpawnerTime = 1;
+    this.ashSpawnerTimer = this.ashSpawnerTime;
   }
   update(dt) {
     for (const particle of this.bloodParticles) {
@@ -464,6 +538,10 @@ class ParticleManager {
         this.game.currentMode.player.heal(particle.heal);
       }
     }
+    //all other particles
+    for (const particle of this.sparkParticles) {
+      particle.update(dt);
+    }
     this.filterDeadParticles();
   }
   render(ctx) {
@@ -471,6 +549,9 @@ class ParticleManager {
       particle.render(ctx);
     }
     for (const particle of this.lifeStealParticles) {
+      particle.render(ctx);
+    }
+    for (const particle of this.sparkParticles) {
       particle.render(ctx);
     }
   }
@@ -492,6 +573,29 @@ class ParticleManager {
 
       if (lifeStealParticle.isDead) {
         this.lifeStealParticles.splice(i, 1);
+      }
+    }
+  }
+  reset(){
+    this.bloodParticles = [];
+    this.sparkParticles = [];
+    this.lifeStealParticles = [];
+  }
+  spawnAshParticles(dt) {
+    this.ashSpawnerTimer -= dt;
+    if (this.ashSpawnerTimer <= 0) {
+      this.ashSpawnerTimer = this.ashSpawnerTime;
+      for (let i = 0; i < 10; i++) {
+        this.sparkParticles.push(
+          new AshParticle(
+            Math.random() * this.game.vCanvasW,
+            this.game.vCanvasH + 10,
+            0.5 + Math.random()*1,
+            0.5 + Math.random()*1,
+            100,
+            this.game.currentMode.camera,
+          ),
+        );
       }
     }
   }
@@ -3020,7 +3124,7 @@ class PlatformerMode {
     this.modeType = GameState.PLATFORMER;
     this.gravity = 600; //px per sec square
     //game lives
-    this.hopes = 3; //basicly player lives
+    this.hopes = 1; //basicly player lives
     //entities
     this.playerW = 16;
     this.playerH = 42;
@@ -3066,16 +3170,34 @@ class PlatformerMode {
     bg2.loop = true;
     this.audioManager.stopBgm("forestBgm");
     this.audioManager.playBgm("battle");
+    this.appliedWinAudio = false;
     this.isInitialized = true;
+
+    //effects
+    this.looseEntity
   }
   update(dt) {
     if (!this.isInitialized) {
       return;
     }
     if (this.wonGame) {
+      if(!this.appliedWinAudio){
+        this.appliedWinAudio = true;
+        this.audioManager.stopBgm("battle");
+        this.audioManager.playBgm("victory",false);
+        this.particleManager.reset();
+      }
       this.updateWinScreen(dt);
       return;
     } else if (this.gameOver) {
+      if(!this.appliedWinAudio){
+        this.appliedWinAudio = true;
+        this.audioManager.stopBgm("battle");
+        this.audioManager.playBgm("gameOver");
+        this.particleManager.reset();
+        this.camera.camOffsetX = 0;
+        this.camera.camOffsetY = 0;
+      }
       this.updateLoseScreen(dt);
       return;
     }
@@ -3243,6 +3365,8 @@ class PlatformerMode {
     }
 
     this.loseRestartButton.update();
+    this.particleManager.spawnAshParticles(dt);
+    this.particleManager.update(dt);
 
     if (this.loseRestartButton.isClicked()) {
       this.game.currentMode.destroy();
@@ -3297,6 +3421,8 @@ class PlatformerMode {
     if (this.loseRestartButton) {
       this.loseRestartButton.render(ctx);
     }
+
+    this.particleManager.render(ctx);
   }
   renderHopes(ctx) {
     ctx.save();
@@ -3526,6 +3652,8 @@ class Game {
       this.audioManager.load("ambience", "assets/sfx/bgm/ambience.wav"),
       this.audioManager.load("forestBgm", "assets/sfx/bgm/forestBgm.wav"),
       this.audioManager.load("battle", "assets/sfx/bgm/battle.ogg"),
+      this.audioManager.load("gameOver", "assets/sfx/bgm/Gameover1.ogg"),
+      this.audioManager.load("victory", "assets/sfx/bgm/Victory1.ogg"),
       this.audioManager.load("shot", "assets/sfx/gunshots/shot.wav"),
       this.audioManager.load("heavyShot", "assets/sfx/gunshots/heavyShot.wav"),
       this.audioManager.load("hurt0", "assets/sfx/hurt/0.wav"),
@@ -3753,7 +3881,6 @@ class Game {
         this.playerH / 2 - 8,
       ),
     };
-    this.sfx = {};
     this.cardData = {
       data1: {
         id: "vampire",

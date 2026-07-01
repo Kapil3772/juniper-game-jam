@@ -1,19 +1,39 @@
-1. Enemy Indicators. Triangle indicators which glow bright red and big when enemy are near and small and dim when far.
+# TODO
 
-2 Tutorial Screen
+## 🔴 Critical (Finish Before Release)
 
-3 Win screen , End Screen audios
+* [X] Enemy Indicators
+* [ ] Tutorial Screen
+* [X] Win / Lose Screen Audio
+* [ ] More Waves
+* [ ] New Map Design (Background + Parallax)
+* [ ] Better Cover Image
+* [ ] Playtesting & Bug Fixes
 
-4 Intro/ Outro video or dialog
+---
 
-5 More card details
+## 🟡 High Priority
 
-6 More Waves
+* [ ] More Card Details
+* [ ] Intro / Outro Dialogue
+* [ ] Particle System
+* [ ] Ambient Sounds (Wind, Birds, etc.)
 
-7 New map design ( with background, parallex)
+---
 
-8 NPC environment system like (Birds, small animals)
+## 🟢 Nice Polish
 
-9 Particle system like leaves in wind, ashes in Menu mode and both win and loose screens too
+* [ ] NPC Environment (Birds, Rabbits, Butterflies)
+* [ ] Dynamic Weather (Rain, Snow, Fog)
+* [ ] Day / Night Lighting
+* [ ] More UI Animations
+* [ ] Achievement System
 
-10 Better visual cover image
+---
+
+## ✨ If There's Still Time
+
+* [ ] Intro / Outro Video
+* [ ] New Enemy Variants
+* [ ] New Cards
+* [ ] Endless Mode
